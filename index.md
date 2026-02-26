@@ -1,9 +1,9 @@
 ---
 layout: default
-title: Math Is All We Need
+title: Math Is All You Need
 ---
 
-# Math Is All We Need
+# Math Is All You Need
 
 Math can be beautiful, even if you don't understand it. But you can try.
 
