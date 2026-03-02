@@ -2,8 +2,8 @@
 layout: default
 title: Math Is All You Need
 ---
-<script data-goatcounter="https://DEINCODE.goatcounter.com/count"
-        async src="https://gc.zgo.at/count.js"></script>
+<script data-goatcounter="https://rasa.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
 
 # Math Is All You Need
 
