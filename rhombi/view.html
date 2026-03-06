@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hexagon Tiling Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #fff;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  #info { font-size: 0.9rem; margin-bottom: 12px; color: #555; }
+  #error { color: #c00; margin: 40px; font-size: 1.1rem; }
+  svg {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Hexagon Rhombus Tiling</h1>
+<div id="info"></div>
+<div id="error"></div>
+<svg id="tiling-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+
+<script>
+const COLORS = ["#e63946", "#f4a261", "#2a9d8f"];
+const STROKE = "#111";
+const STROKE_WIDTH = 0.5;
+const S = 20;
+
+const E = [
+  { x: -0.866 * S, y: -0.5 * S },
+  { x:  0,         y: -1   * S },
+  { x:  0.866 * S, y: -0.5 * S },
+];
+
+const B62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+function b62ToBigInt(str) {
+  let value = 0n;
+  for (const ch of str) {
+    const v = B62.indexOf(ch);
+    if (v < 0) return -1n;
+    value = value * 62n + BigInt(v);
+  }
+  return value;
+}
+
+function pointsStr(pts) { return pts.map(p => `${p.x},${p.y}`).join(" "); }
+
+function makePoly(pts, fill) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+  el.setAttribute("points", pointsStr(pts));
+  el.setAttribute("fill", fill);
+  el.setAttribute("stroke", STROKE);
+  el.setAttribute("stroke-width", STROKE_WIDTH);
+  return el;
+}
+
+function makeLine(x1, y1, x2, y2) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  el.setAttribute("x1", x1); el.setAttribute("y1", y1);
+  el.setAttribute("x2", x2); el.setAttribute("y2", y2);
+  el.setAttribute("stroke", STROKE);
+  el.setAttribute("stroke-width", STROKE_WIDTH * 2);
+  return el;
+}
+
+function rhombusVerts(px, py, a, b) {
+  const ea = E[a], eb = E[b];
+  return [
+    { x: px, y: py },
+    { x: px + ea.x, y: py + ea.y },
+    { x: px + ea.x + eb.x, y: py + ea.y + eb.y },
+    { x: px + eb.x, y: py + eb.y },
+  ];
+}
+
+function findAscents(state) {
+  const asc = [];
+  for (let i = 0; i < state.length - 1; i++)
+    if (state[i] < state[i + 1]) asc.push(i);
+  return asc;
+}
+
+function decodeTiling(n, code) {
+  let value = b62ToBigInt(code);
+  if (value < 0n) return null;
+  const state = [];
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++)
+      state.push(d);
+  const rhombi = [];
+  let ascents = findAscents(state);
+  while (ascents.length > 0) {
+    const k = BigInt(ascents.length);
+    const choiceIdx = Number(value % k);
+    value = value / k;
+    const idx = ascents[choiceIdx];
+    let px = 0, py = 0;
+    for (let j = 0; j < idx; j++) {
+      px += E[state[j]].x;
+      py += E[state[j]].y;
+    }
+    rhombi.push({ px, py, a: state[idx], b: state[idx + 1] });
+    const tmp = state[idx];
+    state[idx] = state[idx + 1];
+    state[idx + 1] = tmp;
+    ascents = findAscents(state);
+  }
+  return rhombi;
+}
+
+function renderTiling(svgEl, n, rhombi) {
+  const hw = 0.866 * n * S + S;
+  const hh = 2 * n * S + S;
+  svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2*hw} ${hh + S}`);
+
+  let p = { x: 0, y: 0 };
+  for (let d = 0; d < 3; d++) {
+    for (let i = 0; i < n; i++) {
+      const nx = p.x + E[d].x, ny = p.y + E[d].y;
+      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      p = { x: nx, y: ny };
+    }
+  }
+  for (let d = 2; d >= 0; d--) {
+    for (let i = 0; i < n; i++) {
+      const nx = p.x - E[d].x, ny = p.y - E[d].y;
+      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      p = { x: nx, y: ny };
+    }
+  }
+  for (const r of rhombi) {
+    svgEl.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
+  }
+}
+
+// ── Read URL parameters and render ─────────────────────────
+
+const params = new URLSearchParams(window.location.search);
+const n = parseInt(params.get("n"), 10);
+const code = params.get("c") || "";
+
+const svgEl = document.getElementById("tiling-svg");
+const infoEl = document.getElementById("info");
+const errorEl = document.getElementById("error");
+
+if (!n || n < 2 || n > 100 || !code) {
+  errorEl.textContent = "Invalid or missing parameters. URL should be: view.html?n=4&c=CODE";
+} else {
+  const size = Math.min(800, Math.floor(window.innerWidth * 0.9));
+  svgEl.style.width = size + "px";
+  svgEl.style.height = "auto";
+  infoEl.textContent = `n = ${n}`;
+
+  const rhombi = decodeTiling(n, code);
+  if (!rhombi) {
+    errorEl.textContent = "Invalid tiling code.";
+  } else {
+    renderTiling(svgEl, n, rhombi);
+  }
+}
+</script>
+
+</body>
+</html>

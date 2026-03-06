@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hexagon Rhombus Tiling</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #fff;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 12px; }
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  label { font-size: 0.95rem; }
+  input[type="number"] {
+    width: 60px;
+    padding: 5px 6px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #f0f0f0;
+    color: #222;
+    font-size: 1rem;
+    text-align: center;
+  }
+  select {
+    padding: 4px 6px;
+    border: 1px solid #999;
+    border-radius: 3px;
+    background: #f8f8f8;
+    color: #222;
+    font-size: 0.8rem;
+  }
+  button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  .btn-gen  { background: #0f3460; color: #fff; }
+  .btn-pdf  { background: #8b0000; color: #fff; }
+  .btn-svg  { background: #533483; color: #fff; }
+  #grid-container {
+    display: grid;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 12px;
+  }
+  .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .cell select { width: 100%; max-width: 200px; }
+  .cell-svg {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+    height: auto;
+  }
+  .cell-url {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    font-size: 0.7rem;
+    font-family: monospace;
+  }
+  .cell-url span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+    color: #555;
+  }
+  .copy-btn {
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 2px 5px;
+    display: flex;
+    align-items: center;
+    transition: background 0.2s;
+  }
+  .copy-btn:hover { background: #e8e8e8; }
+  .copy-btn.copied { background: #d4edda; border-color: #a3d9a5; }
+  .white-mode .cell-svg polygon { fill: #fff !important; }
+
+  /* Decode section */
+  .decode-section {
+    margin-top: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .decode-section input[type="text"] {
+    width: 400px;
+    padding: 6px 8px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #f0f0f0;
+    color: #222;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+  .btn-decode { background: #2a6041; color: #fff; }
+
+  /* Print / PDF */
+  @media print {
+    body { padding: 0; }
+    .controls, .decode-section, .cell select, .cell-url, h1 { display: none !important; }
+    #grid-container { gap: 4px; }
+    .cell-svg { border: none; }
+    @page { size: A4; margin: 10mm; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Hexagon Rhombus Tiling</h1>
+
+<div class="controls">
+  <label>n=</label><input type="number" id="input-n" min="2" max="100" value="4">
+  <label>rows=</label><input type="number" id="input-rows" min="1" max="10" value="1">
+  <label>cols=</label><input type="number" id="input-cols" min="1" max="10" value="1">
+  <label><input type="checkbox" id="toggle-white"> White (for coloring)</label>
+  <button class="btn-gen" id="btn-generate">Generate</button>
+  <button class="btn-svg" id="btn-export-svg">Export SVG</button>
+  <button class="btn-pdf" id="btn-export-pdf">Export PDF</button>
+</div>
+
+<div id="grid-container"></div>
+
+<div class="decode-section">
+  <label>Code:</label>
+  <input type="text" id="input-code" placeholder="Paste tiling code here">
+  <button class="btn-decode" id="btn-decode">Decode</button>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────
+const COLORS = ["#e63946", "#f4a261", "#2a9d8f"];
+const STROKE = "#111";
+const STROKE_WIDTH = 0.5;
+const S = 20;
+
+const E = [
+  { x: -0.866 * S, y: -0.5 * S },
+  { x:  0,         y: -1   * S },
+  { x:  0.866 * S, y: -0.5 * S },
+];
+
+const STRATEGY_NAMES = [
+  "uniform", "bias-left", "bias-right", "gaussian",
+  "freq-balance", "freq-reinforce", "state-balance", "state-reinforce",
+  "pair-balance", "pair-reinforce", "leftmost", "rightmost",
+  "momentum", "round-robin",
+];
+
+const STRATEGY_LABELS = {
+  "uniform": "Uniform random",
+  "bias-left": "Bias left",
+  "bias-right": "Bias right",
+  "gaussian": "Gaussian",
+  "freq-balance": "Freq balance",
+  "freq-reinforce": "Freq reinforce",
+  "state-balance": "State balance",
+  "state-reinforce": "State reinforce",
+  "pair-balance": "Pair balance",
+  "pair-reinforce": "Pair reinforce",
+  "leftmost": "Leftmost",
+  "rightmost": "Rightmost",
+  "momentum": "Momentum",
+  "round-robin": "Round-robin",
+};
+
+// ── Clipboard icon SVG ─────────────────────────────────────
+const COPY_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
+// ── Base-62 mixed-radix encoding ───────────────────────────
+const B62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+function mixedRadixEncode(choices, bases) {
+  let value = 0n;
+  for (let i = choices.length - 1; i >= 0; i--)
+    value = value * BigInt(bases[i]) + BigInt(choices[i]);
+  if (value === 0n) return "A";
+  let result = "";
+  while (value > 0n) {
+    result = B62[Number(value % 62n)] + result;
+    value = value / 62n;
+  }
+  return result;
+}
+
+function b62ToBigInt(str) {
+  let value = 0n;
+  for (const ch of str) {
+    const v = B62.indexOf(ch);
+    if (v < 0) return -1n;
+    value = value * 62n + BigInt(v);
+  }
+  return value;
+}
+
+// ── DOM refs ───────────────────────────────────────────────
+const inputN     = document.getElementById("input-n");
+const inputRows  = document.getElementById("input-rows");
+const inputCols  = document.getElementById("input-cols");
+const toggleWht  = document.getElementById("toggle-white");
+const inputCode  = document.getElementById("input-code");
+const btnGen     = document.getElementById("btn-generate");
+const btnSvg     = document.getElementById("btn-export-svg");
+const btnPdf     = document.getElementById("btn-export-pdf");
+const btnDecode  = document.getElementById("btn-decode");
+const gridContainer = document.getElementById("grid-container");
+
+// ── SVG helpers ────────────────────────────────────────────
+
+function pointsStr(pts) { return pts.map(p => `${p.x},${p.y}`).join(" "); }
+
+function makePoly(pts, fill) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+  el.setAttribute("points", pointsStr(pts));
+  el.setAttribute("fill", fill);
+  el.setAttribute("stroke", STROKE);
+  el.setAttribute("stroke-width", STROKE_WIDTH);
+  return el;
+}
+
+function makeLine(x1, y1, x2, y2) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  el.setAttribute("x1", x1); el.setAttribute("y1", y1);
+  el.setAttribute("x2", x2); el.setAttribute("y2", y2);
+  el.setAttribute("stroke", STROKE);
+  el.setAttribute("stroke-width", STROKE_WIDTH * 2);
+  return el;
+}
+
+function rhombusVerts(px, py, a, b) {
+  const ea = E[a], eb = E[b];
+  return [
+    { x: px, y: py },
+    { x: px + ea.x, y: py + ea.y },
+    { x: px + ea.x + eb.x, y: py + ea.y + eb.y },
+    { x: px + eb.x, y: py + eb.y },
+  ];
+}
+
+// ── Ascent helpers ─────────────────────────────────────────
+
+function findAscents(state) {
+  const asc = [];
+  for (let i = 0; i < state.length - 1; i++)
+    if (state[i] < state[i + 1]) asc.push(i);
+  return asc;
+}
+
+function makeState(n) {
+  const state = [];
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++)
+      state.push(d);
+  return state;
+}
+
+function weightedPick(ascents, weights) {
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < ascents.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return i;
+  }
+  return ascents.length - 1;
+}
+
+// ── Strategies ─────────────────────────────────────────────
+
+function makeStrategy(name) {
+  switch (name) {
+    case "uniform":
+      return { pick(a) { return Math.floor(Math.random() * a.length); }, reset() {} };
+    case "bias-left":
+      return { pick(a) { return weightedPick(a, a.map((_, i) => a.length - i)); }, reset() {} };
+    case "bias-right":
+      return { pick(a) { return weightedPick(a, a.map((_, i) => i + 1)); }, reset() {} };
+    case "gaussian":
+      return {
+        pick(a, s) {
+          const m = (s.length - 1) / 2, sig = s.length / 4;
+          return weightedPick(a, a.map(idx => Math.exp(-0.5 * ((idx - m) / sig) ** 2)));
+        }, reset() {} };
+    case "freq-balance": {
+      let f = {};
+      return {
+        pick(a) { const w = a.map(i => 1/(1+(f[i]||0))); const c = weightedPick(a,w); f[a[c]]=(f[a[c]]||0)+1; return c; },
+        reset() { f = {}; } };
+    }
+    case "freq-reinforce": {
+      let f = {};
+      return {
+        pick(a) { const w = a.map(i => 1+(f[i]||0)); const c = weightedPick(a,w); f[a[c]]=(f[a[c]]||0)+1; return c; },
+        reset() { f = {}; } };
+    }
+    case "state-balance": {
+      let v = {};
+      return {
+        pick(a, s) { const w = a.map(i => 1/(1+(v[s[i]]||0))); const c = weightedPick(a,w); v[s[a[c]]]=(v[s[a[c]]]||0)+1; return c; },
+        reset() { v = {}; } };
+    }
+    case "state-reinforce": {
+      let v = {};
+      return {
+        pick(a, s) { const w = a.map(i => 1+(v[s[i]]||0)); const c = weightedPick(a,w); v[s[a[c]]]=(v[s[a[c]]]||0)+1; return c; },
+        reset() { v = {}; } };
+    }
+    case "pair-balance": {
+      let p = {};
+      return {
+        pick(a, s) { const w = a.map(i => { const k=s[i]+","+s[i+1]; return 1/(1+(p[k]||0)); }); const c = weightedPick(a,w); const k=s[a[c]]+","+s[a[c]+1]; p[k]=(p[k]||0)+1; return c; },
+        reset() { p = {}; } };
+    }
+    case "pair-reinforce": {
+      let p = {};
+      return {
+        pick(a, s) { const w = a.map(i => { const k=s[i]+","+s[i+1]; return 1+(p[k]||0); }); const c = weightedPick(a,w); const k=s[a[c]]+","+s[a[c]+1]; p[k]=(p[k]||0)+1; return c; },
+        reset() { p = {}; } };
+    }
+    case "leftmost":
+      return { pick() { return 0; }, reset() {} };
+    case "rightmost":
+      return { pick(a) { return a.length - 1; }, reset() {} };
+    case "momentum": {
+      let last = -1;
+      return {
+        pick(a) {
+          if (last < 0) { const c = Math.floor(Math.random()*a.length); last=a[c]; return c; }
+          const w = a.map(i => 1/(1+Math.abs(i-last))); const c = weightedPick(a,w); last=a[c]; return c;
+        }, reset() { last = -1; } };
+    }
+    case "round-robin": {
+      const pt = [[0,1],[0,2],[1,2]]; let ph = 0;
+      return {
+        pick(a, s) {
+          for (let at = 0; at < 3; at++) {
+            const [pa,pb] = pt[(ph+at)%3];
+            const m = []; for (let j=0;j<a.length;j++) if(s[a[j]]===pa&&s[a[j]+1]===pb) m.push(j);
+            if (m.length) { ph=(ph+at+1)%3; return m[Math.floor(Math.random()*m.length)]; }
+          }
+          ph=(ph+1)%3; return Math.floor(Math.random()*a.length);
+        }, reset() { ph = 0; } };
+    }
+    default: return makeStrategy("uniform");
+  }
+}
+
+// ── Generation & decoding ──────────────────────────────────
+
+function generateTiling(n, strategyName) {
+  const strategy = makeStrategy(strategyName);
+  strategy.reset();
+  const state = makeState(n);
+  const choices = [], bases = [], rhombi = [];
+
+  let ascents = findAscents(state);
+  while (ascents.length > 0) {
+    const ci = strategy.pick(ascents, state);
+    choices.push(ci);
+    bases.push(ascents.length);
+    const idx = ascents[ci];
+    let px = 0, py = 0;
+    for (let k = 0; k < idx; k++) { px += E[state[k]].x; py += E[state[k]].y; }
+    rhombi.push({ px, py, a: state[idx], b: state[idx + 1] });
+    const tmp = state[idx]; state[idx] = state[idx+1]; state[idx+1] = tmp;
+    ascents = findAscents(state);
+  }
+  return { rhombi, code: mixedRadixEncode(choices, bases) };
+}
+
+function decodeTiling(n, code) {
+  let value = b62ToBigInt(code);
+  if (value < 0n) return null;
+  const state = makeState(n);
+  const rhombi = [];
+  let ascents = findAscents(state);
+  while (ascents.length > 0) {
+    const k = BigInt(ascents.length);
+    const ci = Number(value % k);
+    value = value / k;
+    const idx = ascents[ci];
+    let px = 0, py = 0;
+    for (let j = 0; j < idx; j++) { px += E[state[j]].x; py += E[state[j]].y; }
+    rhombi.push({ px, py, a: state[idx], b: state[idx + 1] });
+    const tmp = state[idx]; state[idx] = state[idx+1]; state[idx+1] = tmp;
+    ascents = findAscents(state);
+  }
+  return rhombi;
+}
+
+// ── Rendering ──────────────────────────────────────────────
+
+function renderTiling(svgEl, n, rhombi) {
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+
+  // Set viewBox analytically: hexagon spans x ∈ [-0.866nS, 0.866nS], y ∈ [-2nS, 0]
+  const hw = 0.866 * n * S + S;  // half-width + pad
+  const hh = 2 * n * S + S;      // full height + pad
+  svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2*hw} ${hh + S}`);
+
+  let p = { x: 0, y: 0 };
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      const nx = p.x+E[d].x, ny = p.y+E[d].y;
+      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      p = { x: nx, y: ny };
+    }
+  for (let d = 2; d >= 0; d--)
+    for (let i = 0; i < n; i++) {
+      const nx = p.x-E[d].x, ny = p.y-E[d].y;
+      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      p = { x: nx, y: ny };
+    }
+  for (const r of rhombi)
+    svgEl.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
+}
+
+// ── Build a strategy <select> ──────────────────────────────
+
+function makeStrategySelect(selected) {
+  const sel = document.createElement("select");
+  for (const name of STRATEGY_NAMES) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = STRATEGY_LABELS[name];
+    if (name === selected) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  return sel;
+}
+
+// ── Build a URL bar with copy button ───────────────────────
+
+function makeUrlBar(url) {
+  const bar = document.createElement("div");
+  bar.className = "cell-url";
+
+  const span = document.createElement("span");
+  span.textContent = url;
+  span.title = url;
+
+  const btn = document.createElement("button");
+  btn.className = "copy-btn";
+  btn.innerHTML = COPY_ICON;
+  btn.title = "Copy URL";
+  btn.addEventListener("click", () => {
+    navigator.clipboard.writeText(url);
+    btn.classList.add("copied");
+    setTimeout(() => btn.classList.remove("copied"), 600);
+  });
+
+  bar.appendChild(span);
+  bar.appendChild(btn);
+  return bar;
+}
+
+// ── Build view URL ─────────────────────────────────────────
+
+function viewUrl(n, code) {
+  const u = new URL("view.html", window.location.href);
+  u.searchParams.set("n", n);
+  u.searchParams.set("c", code);
+  return u.toString();
+}
+
+// ── Cell management ────────────────────────────────────────
+
+let cells = []; // { svgEl, selectEl, urlBar, cellDiv, n, code, rhombi }
+
+function regenerateCell(cell) {
+  const n = parseInt(inputN.value, 10);
+  const strat = cell.selectEl.value;
+  const { rhombi, code } = generateTiling(n, strat);
+  cell.rhombi = rhombi;
+  cell.code = code;
+  cell.n = n;
+  renderTiling(cell.svgEl, n, rhombi);
+
+  const url = viewUrl(n, code);
+  const oldBar = cell.urlBar;
+  cell.urlBar = makeUrlBar(url);
+  cell.cellDiv.replaceChild(cell.urlBar, oldBar);
+}
+
+// ── Grid generation ────────────────────────────────────────
+
+function generateGrid(n, rows, cols) {
+  gridContainer.innerHTML = "";
+  cells = [];
+
+  const cellSize = Math.min(
+    Math.floor(800 / cols),
+    Math.floor(window.innerWidth * 0.9 / cols)
+  ) - 16;
+  gridContainer.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+
+  const total = rows * cols;
+  for (let i = 0; i < total; i++) {
+    const stratName = STRATEGY_NAMES[i % STRATEGY_NAMES.length];
+    const { rhombi, code } = generateTiling(n, stratName);
+
+    const cellDiv = document.createElement("div");
+    cellDiv.className = "cell";
+
+    const selectEl = makeStrategySelect(stratName);
+    cellDiv.appendChild(selectEl);
+
+    const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgEl.classList.add("cell-svg");
+    svgEl.style.maxWidth = cellSize + "px";
+    cellDiv.appendChild(svgEl);
+    renderTiling(svgEl, n, rhombi);
+
+    const urlBar = makeUrlBar(viewUrl(n, code));
+    cellDiv.appendChild(urlBar);
+
+    gridContainer.appendChild(cellDiv);
+
+    const cell = { svgEl, selectEl, urlBar, cellDiv, n, code, rhombi };
+    cells.push(cell);
+
+    selectEl.addEventListener("change", () => regenerateCell(cell));
+  }
+}
+
+// ── White mode toggle ──────────────────────────────────────
+
+toggleWht.addEventListener("change", () => {
+  gridContainer.classList.toggle("white-mode", toggleWht.checked);
+});
+
+// ── Event handlers ─────────────────────────────────────────
+
+btnGen.addEventListener("click", () => {
+  const n = parseInt(inputN.value, 10);
+  const rows = parseInt(inputRows.value, 10);
+  const cols = parseInt(inputCols.value, 10);
+  if (isNaN(n) || n < 2 || n > 100) return alert("n must be 2–100.");
+  if (isNaN(rows) || rows < 1 || rows > 10) return alert("rows must be 1–10.");
+  if (isNaN(cols) || cols < 1 || cols > 10) return alert("cols must be 1–10.");
+  generateGrid(n, rows, cols);
+});
+
+btnDecode.addEventListener("click", () => {
+  const n = parseInt(inputN.value, 10);
+  const code = inputCode.value.trim();
+  if (isNaN(n) || n < 2 || n > 100) return alert("n must be 2–100.");
+  if (!code) return alert("Paste a tiling code.");
+  const rhombi = decodeTiling(n, code);
+  if (!rhombi) return alert("Invalid code.");
+  gridContainer.innerHTML = "";
+  cells = [];
+  gridContainer.style.gridTemplateColumns = "1fr";
+  const cellSize = Math.min(800, Math.floor(window.innerWidth * 0.9));
+  const cellDiv = document.createElement("div");
+  cellDiv.className = "cell";
+  const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svgEl.classList.add("cell-svg");
+  svgEl.style.maxWidth = cellSize + "px";
+  cellDiv.appendChild(svgEl);
+  renderTiling(svgEl, n, rhombi);
+  cellDiv.appendChild(makeUrlBar(viewUrl(n, code)));
+  gridContainer.appendChild(cellDiv);
+});
+
+btnSvg.addEventListener("click", () => {
+  const svgs = gridContainer.querySelectorAll(".cell-svg");
+  const serializer = new XMLSerializer();
+  svgs.forEach((svgEl, i) => {
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const label = svgs.length === 1 ? "" : `-${i + 1}`;
+    a.download = `hexagon-tiling-n${inputN.value}${label}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+});
+
+btnPdf.addEventListener("click", () => {
+  window.print();
+});
+
+btnGen.click();
+</script>
+
+</body>
+</html>
