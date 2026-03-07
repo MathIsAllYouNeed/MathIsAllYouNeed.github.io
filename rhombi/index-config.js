@@ -13,7 +13,7 @@ const TILING_CONFIG = {
 
   // Flippable vertex indicators
   FLIP_R: 0.2,            // radius as fraction of S
-  FLIP_FILL: "#ffffff", %"#2563eb",
+  FLIP_FILL: "#ffffff", //"#2563eb",
   FLIP_STROKE: "none",
   FLIP_STROKE_WIDTH: 0,
 };
