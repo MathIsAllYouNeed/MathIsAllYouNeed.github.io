@@ -115,6 +115,7 @@
     @page { size: A4; margin: 10mm; }
   }
 </style>
+<script src="index-config.js"></script>
 </head>
 <body>
 
@@ -135,10 +136,10 @@
 
 
 <script>
-// ── Constants ──────────────────────────────────────────────
-const COLORS = ["#e63946", "#f4a261", "#2a9d8f"];
-const STROKE = "#111";
-const STROKE_WIDTH = 0.5;
+// ── Constants (from index-config.js) ───────────────────────
+const COLORS = TILING_CONFIG.COLORS;
+const STROKE = TILING_CONFIG.STROKE;
+const STROKE_WIDTH = TILING_CONFIG.STROKE_WIDTH;
 const S = 20;
 
 const E = [
@@ -224,12 +225,12 @@ function makePoly(pts, fill) {
   return el;
 }
 
-function makeLine(x1, y1, x2, y2) {
+function makeLine(x1, y1, x2, y2, stroke, width) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
   el.setAttribute("x1", x1); el.setAttribute("y1", y1);
   el.setAttribute("x2", x2); el.setAttribute("y2", y2);
-  el.setAttribute("stroke", STROKE);
-  el.setAttribute("stroke-width", STROKE_WIDTH * 2);
+  el.setAttribute("stroke", stroke || TILING_CONFIG.BOUNDARY_STROKE);
+  el.setAttribute("stroke-width", width || TILING_CONFIG.BOUNDARY_WIDTH);
   return el;
 }
 
@@ -411,11 +412,30 @@ function buildVertexMap(rhombi) {
   return vmap;
 }
 
-function findFlippable(rhombi) {
+function getBoundaryKeys(n) {
+  const keys = new Set();
+  let p = { x: 0, y: 0 };
+  keys.add(vKey(p));
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x + E[d].x, y: p.y + E[d].y };
+      keys.add(vKey(p));
+    }
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x - E[d].x, y: p.y - E[d].y };
+      keys.add(vKey(p));
+    }
+  return keys;
+}
+
+function findFlippable(rhombi, n) {
   const vmap = buildVertexMap(rhombi);
+  const boundary = getBoundaryKeys(n);
   const result = [];
   for (const [key, info] of vmap) {
     if (info.entries.length !== 3) continue;
+    if (boundary.has(key)) continue;
     const types = new Set(info.entries.map(e => `${rhombi[e.ri].a},${rhombi[e.ri].b}`));
     if (types.size !== 3) continue;
     result.push({ key, x: info.x, y: info.y, entries: info.entries });
@@ -425,8 +445,8 @@ function findFlippable(rhombi) {
 
 function diagCorner(c) { return (c + 2) % 4; }
 
-function tryFlip(rhombi, svgX, svgY) {
-  const flippable = findFlippable(rhombi);
+function tryFlip(rhombi, n, svgX, svgY) {
+  const flippable = findFlippable(rhombi, n);
   let best = null, bestDist = (S * 0.6) ** 2;
   for (const f of flippable) {
     const dx = f.x - svgX, dy = f.y - svgY;
@@ -552,14 +572,15 @@ function renderTiling(svgEl, n, rhombi, showFlippable) {
     svgEl.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
 
   if (showFlippable) {
-    const flips = findFlippable(rhombi);
+    const flips = findFlippable(rhombi, n);
     for (const f of flips) {
       const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       el.setAttribute("cx", f.x);
       el.setAttribute("cy", f.y);
-      el.setAttribute("r", S * 0.12);
-      el.setAttribute("fill", "#2563eb");
-      el.setAttribute("stroke", "none");
+      el.setAttribute("r", S * TILING_CONFIG.FLIP_R);
+      el.setAttribute("fill", TILING_CONFIG.FLIP_FILL);
+      el.setAttribute("stroke", TILING_CONFIG.FLIP_STROKE);
+      if (TILING_CONFIG.FLIP_STROKE_WIDTH) el.setAttribute("stroke-width", TILING_CONFIG.FLIP_STROKE_WIDTH);
       el.style.cursor = "pointer";
       svgEl.appendChild(el);
     }
@@ -687,7 +708,7 @@ function generateGrid(n, rows, cols) {
       pt.x = evt.clientX;
       pt.y = evt.clientY;
       const svgPt = pt.matrixTransform(svgEl.getScreenCTM().inverse());
-      const newRhombi = tryFlip(cell.rhombi, svgPt.x, svgPt.y);
+      const newRhombi = tryFlip(cell.rhombi, cell.n, svgPt.x, svgPt.y);
       if (newRhombi) {
         cell.rhombi = newRhombi;
         rerenderCell(cell);
