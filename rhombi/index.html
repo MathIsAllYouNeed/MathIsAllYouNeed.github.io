@@ -105,31 +105,11 @@
   .copy-btn.copied { background: #d4edda; border-color: #a3d9a5; }
   .white-mode .cell-svg polygon { fill: #fff !important; }
 
-  /* Decode section */
-  .decode-section {
-    margin-top: 16px;
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .decode-section input[type="text"] {
-    width: 400px;
-    padding: 6px 8px;
-    border: 1px solid #555;
-    border-radius: 4px;
-    background: #f0f0f0;
-    color: #222;
-    font-family: monospace;
-    font-size: 0.85rem;
-  }
-  .btn-decode { background: #2a6041; color: #fff; }
 
   /* Print / PDF */
   @media print {
     body { padding: 0; }
-    .controls, .decode-section, .cell select, .cell-url, h1 { display: none !important; }
+    .controls, .cell select, .cell-url, h1 { display: none !important; }
     #grid-container { gap: 4px; }
     .cell-svg { border: none; }
     @page { size: A4; margin: 10mm; }
@@ -152,11 +132,6 @@
 
 <div id="grid-container"></div>
 
-<div class="decode-section">
-  <label>Code:</label>
-  <input type="text" id="input-code" placeholder="Paste tiling code here">
-  <button class="btn-decode" id="btn-decode">Decode</button>
-</div>
 
 <script>
 // ── Constants ──────────────────────────────────────────────
@@ -229,11 +204,9 @@ const inputN     = document.getElementById("input-n");
 const inputRows  = document.getElementById("input-rows");
 const inputCols  = document.getElementById("input-cols");
 const toggleWht  = document.getElementById("toggle-white");
-const inputCode  = document.getElementById("input-code");
 const btnGen     = document.getElementById("btn-generate");
 const btnSvg     = document.getElementById("btn-export-svg");
 const btnPdf     = document.getElementById("btn-export-pdf");
-const btnDecode  = document.getElementById("btn-decode");
 const gridContainer = document.getElementById("grid-container");
 
 // ── SVG helpers ────────────────────────────────────────────
@@ -515,6 +488,7 @@ function regenerateCell(cell) {
 // ── Grid generation ────────────────────────────────────────
 
 function generateGrid(n, rows, cols) {
+  const prevStrategies = cells.map(c => c.selectEl.value);
   gridContainer.innerHTML = "";
   cells = [];
 
@@ -526,7 +500,9 @@ function generateGrid(n, rows, cols) {
 
   const total = rows * cols;
   for (let i = 0; i < total; i++) {
-    const stratName = STRATEGY_NAMES[i % STRATEGY_NAMES.length];
+    const stratName = i < prevStrategies.length
+      ? prevStrategies[i]
+      : STRATEGY_NAMES[i % STRATEGY_NAMES.length];
     const { rhombi, code } = generateTiling(n, stratName);
 
     const cellDiv = document.createElement("div");
@@ -571,33 +547,14 @@ btnGen.addEventListener("click", () => {
   generateGrid(n, rows, cols);
 });
 
-btnDecode.addEventListener("click", () => {
-  const n = parseInt(inputN.value, 10);
-  const code = inputCode.value.trim();
-  if (isNaN(n) || n < 2 || n > 100) return alert("n must be 2–100.");
-  if (!code) return alert("Paste a tiling code.");
-  const rhombi = decodeTiling(n, code);
-  if (!rhombi) return alert("Invalid code.");
-  gridContainer.innerHTML = "";
-  cells = [];
-  gridContainer.style.gridTemplateColumns = "1fr";
-  const cellSize = Math.min(800, Math.floor(window.innerWidth * 0.9));
-  const cellDiv = document.createElement("div");
-  cellDiv.className = "cell";
-  const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svgEl.classList.add("cell-svg");
-  svgEl.style.maxWidth = cellSize + "px";
-  cellDiv.appendChild(svgEl);
-  renderTiling(svgEl, n, rhombi);
-  cellDiv.appendChild(makeUrlBar(viewUrl(n, code)));
-  gridContainer.appendChild(cellDiv);
-});
-
 btnSvg.addEventListener("click", () => {
   const svgs = gridContainer.querySelectorAll(".cell-svg");
+  const isWhite = toggleWht.checked;
   const serializer = new XMLSerializer();
   svgs.forEach((svgEl, i) => {
-    const svgStr = serializer.serializeToString(svgEl);
+    const clone = svgEl.cloneNode(true);
+    if (isWhite) clone.querySelectorAll("polygon").forEach(p => p.setAttribute("fill", "#fff"));
+    const svgStr = serializer.serializeToString(clone);
     const blob = new Blob([svgStr], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
