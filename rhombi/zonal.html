@@ -923,7 +923,7 @@ function render() {
 
   const hw = 0.866 * n * S + S;
   const hh = 2 * n * S + S;
-  svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2 * hw} ${2 * hh}`);
+  svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2 * hw} ${hh + S}`);
 
   const showPaths = document.getElementById("chk-paths").checked;
   const showVertices = document.getElementById("chk-vertices").checked;
