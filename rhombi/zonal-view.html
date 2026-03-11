@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zonal Patchworking Viewer</title>
+<script src="zonal-config.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #fff;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  #info { font-size: 0.9rem; margin-bottom: 12px; color: #555; }
+  #error { color: #c00; margin: 24px 0; font-size: 1rem; }
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  label { font-size: 0.95rem; }
+  select {
+    padding: 4px 6px;
+    border: 1px solid #999;
+    border-radius: 3px;
+    background: #f8f8f8;
+    color: #222;
+    font-size: 0.8rem;
+  }
+  svg#canvas {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    max-width: 800px;
+    width: 90vw;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Zonal Patchworking</h1>
+<div id="info"></div>
+<div class="controls">
+  <label><input type="checkbox" id="chk-fills" checked> Region fills</label>
+  <label><input type="checkbox" id="chk-paths" checked> Paths</label>
+  <label><input type="checkbox" id="chk-vertices" checked> Vertices</label>
+  <label><input type="checkbox" id="chk-rhombus-edges" checked> Rhombus edges</label>
+  <label><input type="checkbox" id="chk-diag-edges" checked> Diagonal edges</label>
+  <label>Unbounded:
+    <select id="sel-unbounded">
+      <option value="none">None</option>
+      <option value="inferno-dark">Inferno (dark)</option>
+      <option value="boundary-hue">Boundary segment</option>
+      <option value="boundary-length">Boundary length</option>
+    </select>
+  </label>
+</div>
+<div id="error"></div>
+<svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+
+<script>
+const S = CONFIG.S;
+const E = [
+  { x: -0.866 * S, y: -0.5 * S },
+  { x:  0,         y: -1   * S },
+  { x:  0.866 * S, y: -0.5 * S },
+];
+const VERTEX_R = CONFIG.VERTEX_R;
+const PATH_W = CONFIG.PATH_W;
+const EDGE_COLOR = CONFIG.EDGE_COLOR;
+const EDGE_W = CONFIG.EDGE_W;
+const DIAG_COLOR = CONFIG.DIAG_COLOR;
+const DIAG_W = CONFIG.DIAG_W;
+const BOUNDARY_COLOR = CONFIG.BOUNDARY_COLOR;
+const BOUNDARY_W = CONFIG.BOUNDARY_W;
+const POS_COLOR = CONFIG.POS_COLOR;
+const NEG_COLOR = CONFIG.NEG_COLOR;
+const PATH_COLOR = CONFIG.PATH_COLOR;
+const KAPPA = 0.5522847498;
+const B62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const NS = "http://www.w3.org/2000/svg";
+
+function b62ToBigInt(str) {
+  let value = 0n;
+  for (const ch of str) {
+    const v = B62.indexOf(ch);
+    if (v < 0) return -1n;
+    value = value * 62n + BigInt(v);
+  }
+  return value;
+}
+
+function decodeBits(code, length) {
+  let value = b62ToBigInt(code);
+  if (value < 0n) return null;
+  const bits = new Array(length).fill(0);
+  for (let i = length - 1; i >= 0; i--) {
+    bits[i] = Number(value & 1n);
+    value >>= 1n;
+  }
+  if (value > 0n) return null;
+  return bits;
+}
+
+function findAscents(state) {
+  const asc = [];
+  for (let i = 0; i < state.length - 1; i++)
+    if (state[i] < state[i + 1]) asc.push(i);
+  return asc;
+}
+
+function makeState(n) {
+  const s = [];
+  for (let d = 0; d < 3; d++) for (let i = 0; i < n; i++) s.push(d);
+  return s;
+}
+
+function decodeTiling(n, code) {
+  let value = b62ToBigInt(code);
+  if (value < 0n) return null;
+  const state = makeState(n);
+  const rhombi = [];
+  let ascents = findAscents(state);
+  while (ascents.length > 0) {
+    const base = BigInt(ascents.length);
+    const choice = Number(value % base);
+    value /= base;
+    const idx = ascents[choice];
+    let px = 0, py = 0;
+    for (let i = 0; i < idx; i++) { px += E[state[i]].x; py += E[state[i]].y; }
+    rhombi.push({ px, py, a: state[idx], b: state[idx + 1] });
+    const tmp = state[idx]; state[idx] = state[idx + 1]; state[idx + 1] = tmp;
+    ascents = findAscents(state);
+  }
+  return rhombi;
+}
+
+function vKey(v) { return `${Math.round(v.x * 100)},${Math.round(v.y * 100)}`; }
+function eKey(a, b) { const ka = vKey(a), kb = vKey(b); return ka < kb ? ka + "|" + kb : kb + "|" + ka; }
+
+function collectVerticesAndEdges(rhombi) {
+  const vertexMap = new Map();
+  const edges = new Map();
+  for (const r of rhombi) {
+    const v0 = { x: r.px, y: r.py };
+    const v1 = { x: r.px + E[r.a].x, y: r.py + E[r.a].y };
+    const v2 = { x: r.px + E[r.a].x + E[r.b].x, y: r.py + E[r.a].y + E[r.b].y };
+    const v3 = { x: r.px + E[r.b].x, y: r.py + E[r.b].y };
+    for (const v of [v0, v1, v2, v3]) {
+      const k = vKey(v);
+      if (!vertexMap.has(k)) vertexMap.set(k, { x: v.x, y: v.y, sign: 0 });
+    }
+    for (const [a, b] of [[v0, v1], [v1, v2], [v2, v3], [v3, v0]]) {
+      const ek = eKey(a, b);
+      if (!edges.has(ek)) edges.set(ek, [a, b]);
+    }
+  }
+  return { vertexMap, edges };
+}
+
+function orderedVertexKeys(vertexMap) {
+  return [...vertexMap.entries()]
+    .sort((a, b) => a[1].x - b[1].x || a[1].y - b[1].y || a[0].localeCompare(b[0]))
+    .map(([key]) => key);
+}
+
+function applySigns(vertexMap, signBits) {
+  const keys = orderedVertexKeys(vertexMap);
+  if (keys.length !== signBits.length) return false;
+  for (let i = 0; i < keys.length; i++)
+    vertexMap.get(keys[i]).sign = signBits[i] ? 1 : -1;
+  return true;
+}
+
+class UnionFind {
+  constructor() { this.p = new Map(); this.r = new Map(); }
+  find(x) {
+    if (!this.p.has(x)) { this.p.set(x, x); this.r.set(x, 0); }
+    if (this.p.get(x) !== x) this.p.set(x, this.find(this.p.get(x)));
+    return this.p.get(x);
+  }
+  union(a, b) {
+    const ra = this.find(a), rb = this.find(b);
+    if (ra === rb) return;
+    const ka = this.r.get(ra), kb = this.r.get(rb);
+    if (ka < kb) this.p.set(ra, rb);
+    else if (ka > kb) this.p.set(rb, ra);
+    else { this.p.set(rb, ra); this.r.set(ra, ka + 1); }
+  }
+}
+
+const INFERNO = [
+  [0.0, 0, 0, 4], [0.1, 11, 4, 30], [0.2, 43, 10, 72],
+  [0.3, 78, 18, 83], [0.4, 115, 31, 78], [0.5, 152, 47, 60],
+  [0.6, 186, 68, 38], [0.7, 215, 97, 18], [0.8, 238, 138, 8],
+  [0.9, 252, 192, 30], [1.0, 252, 255, 164],
+];
+
+function infernoColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < INFERNO.length - 1; i++) {
+    const [t0, r0, g0, b0] = INFERNO[i];
+    const [t1, r1, g1, b1] = INFERNO[i + 1];
+    if (t <= t1) {
+      const f = (t - t0) / (t1 - t0);
+      return `rgb(${Math.round(r0 + f * (r1 - r0))},${Math.round(g0 + f * (g1 - g0))},${Math.round(b0 + f * (b1 - b0))})`;
+    }
+  }
+  return "rgb(252,255,164)";
+}
+
+function getBoundaryKeys(n) {
+  const keys = new Set();
+  let p = { x: 0, y: 0 };
+  keys.add(vKey(p));
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x + E[d].x, y: p.y + E[d].y };
+      keys.add(vKey(p));
+    }
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x - E[d].x, y: p.y - E[d].y };
+      keys.add(vKey(p));
+    }
+  return keys;
+}
+
+function getBoundaryKeysList(n) {
+  const keys = [];
+  let p = { x: 0, y: 0 };
+  keys.push(vKey(p));
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x + E[d].x, y: p.y + E[d].y };
+      keys.push(vKey(p));
+    }
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      p = { x: p.x - E[d].x, y: p.y - E[d].y };
+      keys.push(vKey(p));
+    }
+  return keys;
+}
+
+function localGroups(isMixed, hasDiag) {
+  const mixedCount = isMixed.filter(Boolean).length;
+  const sideVerts = [[0, 1], [1, 2], [2, 3], [3, 0]];
+  if (mixedCount === 0) return [[0, 1, 2, 3]];
+  if (mixedCount === 2) {
+    const mi = isMixed.map((m, i) => m ? i : -1).filter(i => i >= 0);
+    const [a, b] = mi;
+    const diff = (b - a + 4) % 4;
+    if (diff === 1 || diff === 3) {
+      const sa = new Set(sideVerts[a]);
+      const shared = sideVerts[b].find(vi => sa.has(vi));
+      return [[shared], [0, 1, 2, 3].filter(i => i !== shared)];
+    }
+    if (a === 0 && b === 2) return [[0, 3], [1, 2]];
+    return [[0, 1], [2, 3]];
+  }
+  if (mixedCount === 4) {
+    if (hasDiag) return [[1], [3], [0, 2]];
+    return [[0], [1], [2], [3]];
+  }
+  return [[0, 1, 2, 3]];
+}
+
+function computeRegionColors(rhombi, hasDiag, vertexMap, n, unboundedMode) {
+  const uf = new UnionFind();
+  const sideVerts = [[0,1],[1,2],[2,3],[3,0]];
+  for (let ri = 0; ri < rhombi.length; ri++) {
+    const r = rhombi[ri];
+    const v = [
+      { x: r.px, y: r.py },
+      { x: r.px + E[r.a].x, y: r.py + E[r.a].y },
+      { x: r.px + E[r.a].x + E[r.b].x, y: r.py + E[r.a].y + E[r.b].y },
+      { x: r.px + E[r.b].x, y: r.py + E[r.b].y },
+    ];
+    const keys = v.map(vv => vKey(vv));
+    const isMixed = sideVerts.map(([i, j]) => vertexMap.get(keys[i]).sign !== vertexMap.get(keys[j]).sign);
+    for (const group of localGroups(isMixed, hasDiag[ri])) {
+      for (let i = 1; i < group.length; i++) uf.union(keys[group[0]], keys[group[i]]);
+    }
+  }
+
+  const boundaryKeys = getBoundaryKeys(n);
+  const regionSize = new Map();
+  const regionUnbounded = new Set();
+  for (const [key] of vertexMap) {
+    const root = uf.find(key);
+    regionSize.set(root, (regionSize.get(root) || 0) + 1);
+    if (boundaryKeys.has(key)) regionUnbounded.add(root);
+  }
+
+  const bounded = [];
+  for (const [root, size] of regionSize)
+    if (!regionUnbounded.has(root)) bounded.push(size);
+  const maxS = bounded.length ? Math.max(...bounded) : 1;
+  const minS = bounded.length ? Math.min(...bounded) : 1;
+  const logMax = Math.log(maxS), logMin = Math.log(minS);
+
+  const unboundedColorMap = new Map();
+  if (unboundedMode === "inferno-dark") {
+    const ubSizes = [...regionUnbounded].map(root => regionSize.get(root));
+    const ubMax = ubSizes.length ? Math.max(...ubSizes) : 1;
+    const ubMin = ubSizes.length ? Math.min(...ubSizes) : 1;
+    const ubLogMax = Math.log(ubMax), ubLogMin = Math.log(ubMin);
+    for (const root of regionUnbounded) {
+      const size = regionSize.get(root);
+      const t = ubLogMax === ubLogMin ? 0.15 : 0.35 * (1 - (Math.log(size) - ubLogMin) / (ubLogMax - ubLogMin));
+      unboundedColorMap.set(root, infernoColor(t));
+    }
+  } else if (unboundedMode === "boundary-hue") {
+    const bKeys = getBoundaryKeysList(n);
+    const rootToBoundaryIdx = new Map();
+    for (let i = 0; i < bKeys.length; i++) {
+      const root = uf.find(bKeys[i]);
+      if (!rootToBoundaryIdx.has(root)) rootToBoundaryIdx.set(root, []);
+      rootToBoundaryIdx.get(root).push(i);
+    }
+    for (const root of regionUnbounded) {
+      const indices = rootToBoundaryIdx.get(root) || [0];
+      const avgIdx = indices.reduce((a, b) => a + b, 0) / indices.length;
+      const hue = (avgIdx / bKeys.length) * 360;
+      unboundedColorMap.set(root, `hsl(${hue}, 55%, 75%)`);
+    }
+  } else if (unboundedMode === "boundary-length") {
+    const bKeys = getBoundaryKeysList(n);
+    const rootBoundaryCount = new Map();
+    for (const bk of bKeys) {
+      const root = uf.find(bk);
+      rootBoundaryCount.set(root, (rootBoundaryCount.get(root) || 0) + 1);
+    }
+    const counts = [...regionUnbounded].map(r => rootBoundaryCount.get(r) || 0);
+    const cMax = counts.length ? Math.max(...counts) : 1;
+    const cMin = counts.length ? Math.min(...counts) : 1;
+    for (const root of regionUnbounded) {
+      const c = rootBoundaryCount.get(root) || 0;
+      const t = cMax === cMin ? 0.5 : (c - cMin) / (cMax - cMin);
+      const hue = 30 + t * 210;
+      const light = 70 + (1 - t) * 10;
+      unboundedColorMap.set(root, `hsl(${hue}, 50%, ${light}%)`);
+    }
+  }
+
+  const colorMap = new Map();
+  for (const [key] of vertexMap) {
+    const root = uf.find(key);
+    if (regionUnbounded.has(root)) {
+      colorMap.set(key, unboundedColorMap.get(root) || null);
+      continue;
+    }
+    const size = regionSize.get(root);
+    const t = logMax === logMin ? 0.7 : 1 - (Math.log(size) - logMin) / (logMax - logMin);
+    colorMap.set(key, infernoColor(t));
+  }
+  return colorMap;
+}
+
+function drawAllFills(svgEl, rhombi, hasDiag, vertexMap, regionColors) {
+  const sideVerts = [[0,1],[1,2],[2,3],[3,0]];
+
+  function fillShape(d, color) {
+    if (!color) return;
+    const el = document.createElementNS(NS, "path");
+    el.setAttribute("d", d);
+    el.setAttribute("fill", color);
+    el.setAttribute("stroke", "none");
+    renderLayer.appendChild(el);
+  }
+
+  function arcCP(m1, m2, sv) {
+    return {
+      cp1: { x: m1.x + KAPPA * (m2.x - sv.x), y: m1.y + KAPPA * (m2.y - sv.y) },
+      cp2: { x: m2.x + KAPPA * (m1.x - sv.x), y: m2.y + KAPPA * (m1.y - sv.y) },
+    };
+  }
+
+  for (let ri = 0; ri < rhombi.length; ri++) {
+    const r = rhombi[ri];
+    const v = [
+      { x: r.px, y: r.py },
+      { x: r.px + E[r.a].x, y: r.py + E[r.a].y },
+      { x: r.px + E[r.a].x + E[r.b].x, y: r.py + E[r.a].y + E[r.b].y },
+      { x: r.px + E[r.b].x, y: r.py + E[r.b].y },
+    ];
+    const keys = v.map(vv => vKey(vv));
+    const col = k => regionColors.get(k) || null;
+    const mid = sideVerts.map(([i, j]) => ({ x: (v[i].x + v[j].x) / 2, y: (v[i].y + v[j].y) / 2 }));
+    const isMixed = sideVerts.map(([i, j]) => vertexMap.get(keys[i]).sign !== vertexMap.get(keys[j]).sign);
+    const mc = isMixed.filter(Boolean).length;
+
+    if (mc === 0) {
+      fillShape(`M${v[0].x},${v[0].y}L${v[1].x},${v[1].y}L${v[2].x},${v[2].y}L${v[3].x},${v[3].y}Z`, col(keys[0]));
+      continue;
+    }
+
+    if (mc === 2) {
+      const mi = isMixed.map((m, i) => m ? i : -1).filter(i => i >= 0);
+      const [a, b] = mi;
+      const diff = (b - a + 4) % 4;
+      if (diff === 1 || diff === 3) {
+        const sa = new Set(sideVerts[a]);
+        const s = sideVerts[b].find(vi => sa.has(vi));
+        const mB = mid[(s + 3) % 4], mA = mid[s];
+        const { cp1, cp2 } = arcCP(mB, mA, v[s]);
+        const s1 = (s + 1) % 4, s2 = (s + 2) % 4, s3 = (s + 3) % 4;
+        fillShape(`M${mB.x},${mB.y}L${v[s].x},${v[s].y}L${mA.x},${mA.y}C${cp2.x},${cp2.y} ${cp1.x},${cp1.y} ${mB.x},${mB.y}Z`, col(keys[s]));
+        fillShape(`M${mB.x},${mB.y}C${cp1.x},${cp1.y} ${cp2.x},${cp2.y} ${mA.x},${mA.y}L${v[s1].x},${v[s1].y}L${v[s2].x},${v[s2].y}L${v[s3].x},${v[s3].y}Z`, col(keys[s1]));
+      } else {
+        let side1, side2;
+        if (a === 0 && b === 2) { side1 = [0, 3]; side2 = [1, 2]; }
+        else { side1 = [1, 0]; side2 = [2, 3]; }
+        const mA = mid[a], mB = mid[b];
+        fillShape(`M${mA.x},${mA.y}L${v[side1[0]].x},${v[side1[0]].y}L${v[side1[1]].x},${v[side1[1]].y}L${mB.x},${mB.y}Z`, col(keys[side1[0]]));
+        fillShape(`M${mA.x},${mA.y}L${v[side2[0]].x},${v[side2[0]].y}L${v[side2[1]].x},${v[side2[1]].y}L${mB.x},${mB.y}Z`, col(keys[side2[0]]));
+      }
+      continue;
+    }
+
+    if (mc === 4) {
+      if (hasDiag[ri]) {
+        const { cp1: c1a, cp2: c2a } = arcCP(mid[0], mid[1], v[1]);
+        const { cp1: c1b, cp2: c2b } = arcCP(mid[2], mid[3], v[3]);
+        fillShape(`M${mid[0].x},${mid[0].y}L${v[1].x},${v[1].y}L${mid[1].x},${mid[1].y}C${c2a.x},${c2a.y} ${c1a.x},${c1a.y} ${mid[0].x},${mid[0].y}Z`, col(keys[1]));
+        fillShape(`M${mid[2].x},${mid[2].y}L${v[3].x},${v[3].y}L${mid[3].x},${mid[3].y}C${c2b.x},${c2b.y} ${c1b.x},${c1b.y} ${mid[2].x},${mid[2].y}Z`, col(keys[3]));
+        fillShape(`M${mid[0].x},${mid[0].y}C${c1a.x},${c1a.y} ${c2a.x},${c2a.y} ${mid[1].x},${mid[1].y}L${v[2].x},${v[2].y}L${mid[2].x},${mid[2].y}C${c1b.x},${c1b.y} ${c2b.x},${c2b.y} ${mid[3].x},${mid[3].y}L${v[0].x},${v[0].y}Z`, col(keys[0]));
+      } else {
+        const cx = (v[0].x + v[1].x + v[2].x + v[3].x) / 4;
+        const cy = (v[0].y + v[1].y + v[2].y + v[3].y) / 4;
+        for (let i = 0; i < 4; i++) {
+          const mP = mid[(i + 3) % 4], mN = mid[i];
+          fillShape(`M${mP.x},${mP.y}L${v[i].x},${v[i].y}L${mN.x},${mN.y}L${cx},${cy}Z`, col(keys[i]));
+        }
+      }
+    }
+  }
+}
+
+function buildPathSegments(rhombi, hasDiag, vertexMap) {
+  const segmentsByEdge = new Map();
+  const allMixedEdges = new Set();
+  const diagonalEdges = [];
+
+  function addSeg(e1, e2, bezier) {
+    allMixedEdges.add(e1);
+    allMixedEdges.add(e2);
+    if (!segmentsByEdge.has(e1)) segmentsByEdge.set(e1, []);
+    segmentsByEdge.get(e1).push({ target: e2, bezier });
+    if (!segmentsByEdge.has(e2)) segmentsByEdge.set(e2, []);
+    segmentsByEdge.get(e2).push({ target: e1, bezier: [bezier[3], bezier[2], bezier[1], bezier[0]] });
+  }
+
+  function arcBezier(m1, m2, sv) {
+    const cp1 = { x: m1.x + KAPPA * (m2.x - sv.x), y: m1.y + KAPPA * (m2.y - sv.y) };
+    const cp2 = { x: m2.x + KAPPA * (m1.x - sv.x), y: m2.y + KAPPA * (m1.y - sv.y) };
+    return [m1, cp1, cp2, m2];
+  }
+
+  function lineBezier(m1, m2) {
+    const cp1 = { x: m1.x + (m2.x - m1.x) / 3, y: m1.y + (m2.y - m1.y) / 3 };
+    const cp2 = { x: m1.x + 2 * (m2.x - m1.x) / 3, y: m1.y + 2 * (m2.y - m1.y) / 3 };
+    return [m1, cp1, cp2, m2];
+  }
+
+  const sideVerts = [[0,1],[1,2],[2,3],[3,0]];
+  for (let ri = 0; ri < rhombi.length; ri++) {
+    const r = rhombi[ri];
+    const v = [
+      { x: r.px, y: r.py },
+      { x: r.px + E[r.a].x, y: r.py + E[r.a].y },
+      { x: r.px + E[r.a].x + E[r.b].x, y: r.py + E[r.a].y + E[r.b].y },
+      { x: r.px + E[r.b].x, y: r.py + E[r.b].y },
+    ];
+    if (hasDiag[ri]) diagonalEdges.push([v[0], v[2]]);
+    const isMixed = sideVerts.map(([i, j]) => vertexMap.get(vKey(v[i])).sign !== vertexMap.get(vKey(v[j])).sign);
+    const mixedCount = isMixed.filter(Boolean).length;
+    if (mixedCount === 0) continue;
+    const ek = sideVerts.map(([i, j]) => eKey(v[i], v[j]));
+    const mid = sideVerts.map(([i, j]) => ({ x: (v[i].x + v[j].x) / 2, y: (v[i].y + v[j].y) / 2 }));
+    if (mixedCount === 2) {
+      const mi = isMixed.map((m, i) => m ? i : -1).filter(i => i >= 0);
+      const [a, b] = mi;
+      const diff = (b - a + 4) % 4;
+      if (diff === 1 || diff === 3) {
+        const sa = new Set(sideVerts[a]);
+        const shared = sideVerts[b].find(vi => sa.has(vi));
+        addSeg(ek[a], ek[b], arcBezier(mid[a], mid[b], v[shared]));
+      } else {
+        addSeg(ek[a], ek[b], lineBezier(mid[a], mid[b]));
+      }
+    } else if (mixedCount === 4) {
+      if (hasDiag[ri]) {
+        addSeg(ek[0], ek[1], arcBezier(mid[0], mid[1], v[1]));
+        addSeg(ek[2], ek[3], arcBezier(mid[2], mid[3], v[3]));
+      } else {
+        addSeg(ek[0], ek[2], lineBezier(mid[0], mid[2]));
+        addSeg(ek[1], ek[3], lineBezier(mid[1], mid[3]));
+      }
+    }
+  }
+  return { segmentsByEdge, allMixedEdges, diagonalEdges };
+}
+
+function tracePaths(segmentsByEdge, allMixedEdges) {
+  const visited = new Set();
+  const paths = [];
+  const endpoints = [];
+  for (const ek of allMixedEdges) {
+    const segs = segmentsByEdge.get(ek);
+    if (!segs || segs.length <= 1) endpoints.push(ek);
+  }
+
+  function trace(startEdge) {
+    const beziers = [];
+    let cur = startEdge;
+    visited.add(cur);
+    while (true) {
+      const segs = segmentsByEdge.get(cur) || [];
+      const seg = segs.find(s => !visited.has(s.target));
+      if (!seg) {
+        const closeSeg = segs.find(s => s.target === startEdge && beziers.length > 0);
+        if (closeSeg) {
+          beziers.push(closeSeg.bezier);
+          return { beziers, closed: true };
+        }
+        return { beziers, closed: false };
+      }
+      beziers.push(seg.bezier);
+      cur = seg.target;
+      visited.add(cur);
+    }
+  }
+
+  for (const ep of endpoints) {
+    if (visited.has(ep)) continue;
+    const path = trace(ep);
+    if (path.beziers.length > 0) paths.push(path);
+  }
+  for (const ek of allMixedEdges) {
+    if (visited.has(ek)) continue;
+    const path = trace(ek);
+    if (path.beziers.length > 0) paths.push(path);
+  }
+  return paths;
+}
+
+function pathToSVGd(beziers) {
+  if (beziers.length === 0) return "";
+  const [p0, p1, p2, p3] = beziers[0];
+  let d = `M${p0.x},${p0.y}C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`;
+  for (let i = 1; i < beziers.length; i++) {
+    const [, c1, c2, end] = beziers[i];
+    d += `C${c1.x},${c1.y} ${c2.x},${c2.y} ${end.x},${end.y}`;
+  }
+  return d;
+}
+
+function addLine(svgEl, x1, y1, x2, y2, color, width) {
+  const el = document.createElementNS(NS, "line");
+  el.setAttribute("x1", x1); el.setAttribute("y1", y1);
+  el.setAttribute("x2", x2); el.setAttribute("y2", y2);
+  el.setAttribute("stroke", color);
+  el.setAttribute("stroke-width", width);
+  renderLayer.appendChild(el);
+}
+
+function addCircle(svgEl, cx, cy, r, fill) {
+  const el = document.createElementNS(NS, "circle");
+  el.setAttribute("cx", cx); el.setAttribute("cy", cy);
+  el.setAttribute("r", r); el.setAttribute("fill", fill);
+  renderLayer.appendChild(el);
+}
+
+function addPath(svgEl, d, color, width) {
+  const el = document.createElementNS(NS, "path");
+  el.setAttribute("d", d);
+  el.setAttribute("stroke", color);
+  el.setAttribute("stroke-width", width);
+  el.setAttribute("fill", "none");
+  el.setAttribute("stroke-linecap", "round");
+  el.setAttribute("stroke-linejoin", "round");
+  renderLayer.appendChild(el);
+}
+
+const svgEl = document.getElementById("canvas");
+const infoEl = document.getElementById("info");
+const errorEl = document.getElementById("error");
+let currentN, currentRhombi, currentVertexMap, currentEdgeMap, currentHasDiag;
+let renderLayer;
+
+function makeRenderLayer(n) {
+  const el = document.createElementNS(NS, "g");
+  el.setAttribute("transform", `translate(0 ${-2 * n * S}) rotate(180)`);
+  return el;
+}
+
+function render() {
+  svgEl.innerHTML = "";
+  const n = currentN;
+  const hw = 0.866 * n * S + S;
+  const hh = 2 * n * S + S;
+  svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2 * hw} ${2 * hh}`);
+
+  const showPaths = document.getElementById("chk-paths").checked;
+  const showVertices = document.getElementById("chk-vertices").checked;
+  const showRhombusEdges = document.getElementById("chk-rhombus-edges").checked;
+  const showDiagEdges = document.getElementById("chk-diag-edges").checked;
+  const unboundedMode = document.getElementById("sel-unbounded").value;
+  renderLayer = makeRenderLayer(n);
+  svgEl.appendChild(renderLayer);
+
+  if (document.getElementById("chk-fills").checked) {
+    const regionColors = computeRegionColors(currentRhombi, currentHasDiag, currentVertexMap, n, unboundedMode);
+    drawAllFills(svgEl, currentRhombi, currentHasDiag, currentVertexMap, regionColors);
+  }
+
+  if (showRhombusEdges) {
+    for (const [, [a, b]] of currentEdgeMap) addLine(svgEl, a.x, a.y, b.x, b.y, EDGE_COLOR, EDGE_W);
+  }
+
+  const { segmentsByEdge, allMixedEdges, diagonalEdges } = buildPathSegments(currentRhombi, currentHasDiag, currentVertexMap);
+  if (showDiagEdges) {
+    for (const [a, b] of diagonalEdges) addLine(svgEl, a.x, a.y, b.x, b.y, DIAG_COLOR, DIAG_W);
+  }
+
+  let p = { x: 0, y: 0 };
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      const nx = p.x + E[d].x, ny = p.y + E[d].y;
+      addLine(svgEl, p.x, p.y, nx, ny, BOUNDARY_COLOR, BOUNDARY_W);
+      p = { x: nx, y: ny };
+    }
+  for (let d = 0; d < 3; d++)
+    for (let i = 0; i < n; i++) {
+      const nx = p.x - E[d].x, ny = p.y - E[d].y;
+      addLine(svgEl, p.x, p.y, nx, ny, BOUNDARY_COLOR, BOUNDARY_W);
+      p = { x: nx, y: ny };
+    }
+
+  if (showPaths) {
+    const paths = tracePaths(segmentsByEdge, allMixedEdges);
+    for (const path of paths) {
+      const d = pathToSVGd(path.beziers);
+      if (d) addPath(svgEl, d, PATH_COLOR, PATH_W);
+    }
+  }
+
+  if (showVertices) {
+    for (const [, v] of currentVertexMap)
+      addCircle(svgEl, v.x, v.y, VERTEX_R, v.sign === 1 ? POS_COLOR : NEG_COLOR);
+  }
+}
+
+for (const id of ["chk-fills", "chk-paths", "chk-vertices", "chk-rhombus-edges", "chk-diag-edges", "sel-unbounded"])
+  document.getElementById(id).addEventListener("change", () => { if (currentRhombi) render(); });
+
+const params = new URLSearchParams(window.location.search);
+const n = parseInt(params.get("n"), 10);
+const tilingCode = params.get("c") || "";
+const diagCode = params.get("d") || "";
+const signCode = params.get("s") || "";
+
+if (!n || n < 2 || n > 50 || !tilingCode || !diagCode || !signCode) {
+  errorEl.textContent = "Invalid or missing parameters. URL should be: zonal-view.html?n=4&c=...&d=...&s=...";
+} else {
+  const rhombi = decodeTiling(n, tilingCode);
+  if (!rhombi) {
+    errorEl.textContent = "Invalid tiling code.";
+  } else {
+    const diagBits = decodeBits(diagCode, rhombi.length);
+    const { vertexMap, edges } = collectVerticesAndEdges(rhombi);
+    const signBits = decodeBits(signCode, vertexMap.size);
+    if (!diagBits || !signBits || !applySigns(vertexMap, signBits)) {
+      errorEl.textContent = "Invalid zonal state encoding.";
+    } else {
+      currentN = n;
+      currentRhombi = rhombi;
+      currentHasDiag = diagBits.map(Boolean);
+      currentVertexMap = vertexMap;
+      currentEdgeMap = edges;
+      infoEl.textContent = `n = ${n}`;
+      render();
+    }
+  }
+}
+</script>
+
+</body>
+</html>

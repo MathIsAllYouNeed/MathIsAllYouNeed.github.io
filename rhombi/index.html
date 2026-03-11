@@ -91,6 +91,10 @@
     max-width: 200px;
     color: #555;
   }
+  .cell-boxes {
+    font-size: 0.78rem;
+    color: #444;
+  }
   .copy-btn {
     background: none;
     border: 1px solid #ccc;
@@ -109,7 +113,7 @@
   /* Print / PDF */
   @media print {
     body { padding: 0; }
-    .controls, .cell select, .cell-url, h1 { display: none !important; }
+    .controls, .cell select, .cell-url, .cell-boxes, h1 { display: none !important; }
     #grid-container { gap: 4px; }
     .cell-svg { border: none; }
     @page { size: A4; margin: 10mm; }
@@ -234,6 +238,12 @@ function makeLine(x1, y1, x2, y2, stroke, width) {
   el.setAttribute("x2", x2); el.setAttribute("y2", y2);
   el.setAttribute("stroke", stroke || TILING_CONFIG.BOUNDARY_STROKE);
   el.setAttribute("stroke-width", width || TILING_CONFIG.BOUNDARY_WIDTH);
+  return el;
+}
+
+function makeRenderLayer(n) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  el.setAttribute("transform", `translate(0 ${-2 * n * S}) rotate(180)`);
   return el;
 }
 
@@ -401,6 +411,79 @@ function decodeTiling(n, code) {
 
 function vKey(v) { return `${Math.round(v.x * 100)},${Math.round(v.y * 100)}`; }
 
+function axisFromDiff(dx, dy) {
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(dx - E[k].x) < 0.1 && Math.abs(dy - E[k].y) < 0.1) return [k, 1];
+    if (Math.abs(dx + E[k].x) < 0.1 && Math.abs(dy + E[k].y) < 0.1) return [k, -1];
+  }
+  return null;
+}
+
+function liftVertices(rhombi) {
+  const adj = new Map();
+
+  function addEdge(u, v) {
+    const ku = vKey(u), kv = vKey(v);
+    const axisInfo = axisFromDiff(v.x - u.x, v.y - u.y);
+    if (!axisInfo) return;
+    const [axis, sign] = axisInfo;
+    if (!adj.has(ku)) adj.set(ku, []);
+    if (!adj.has(kv)) adj.set(kv, []);
+    adj.get(ku).push({ key: kv, axis, sign });
+    adj.get(kv).push({ key: ku, axis, sign: -sign });
+  }
+
+  for (const r of rhombi) {
+    const [v0, v1, v2, v3] = rhombusVerts(r.px, r.py, r.a, r.b);
+    addEdge(v0, v1);
+    addEdge(v1, v2);
+    addEdge(v2, v3);
+    addEdge(v3, v0);
+  }
+
+  const coords = new Map();
+  const start = adj.keys().next().value;
+  if (!start) return coords;
+  coords.set(start, [0, 0, 0]);
+  const queue = [start];
+
+  while (queue.length) {
+    const key = queue.shift();
+    const here = coords.get(key);
+    for (const edge of adj.get(key) || []) {
+      const next = [...here];
+      next[edge.axis] += edge.sign;
+      if (!coords.has(edge.key)) {
+        coords.set(edge.key, next);
+        queue.push(edge.key);
+      }
+    }
+  }
+
+  const mins = [Infinity, Infinity, Infinity];
+  for (const coord of coords.values())
+    for (let i = 0; i < 3; i++)
+      mins[i] = Math.min(mins[i], coord[i]);
+
+  for (const coord of coords.values())
+    for (let i = 0; i < 3; i++)
+      coord[i] -= mins[i];
+
+  return coords;
+}
+
+function countBoxes(n, rhombi) {
+  const coords = liftVertices(rhombi);
+  let boxes = 0;
+  for (const r of rhombi) {
+    const missingAxis = 3 - r.a - r.b;
+    const coord = coords.get(vKey({ x: r.px, y: r.py }));
+    if (!coord) continue;
+    boxes += missingAxis === 1 ? n - coord[missingAxis] : coord[missingAxis];
+  }
+  return Math.round(boxes / 3);
+}
+
 function buildVertexMap(rhombi) {
   const vmap = new Map();
   for (let ri = 0; ri < rhombi.length; ri++) {
@@ -557,22 +640,24 @@ function renderTiling(svgEl, n, rhombi, showFlippable) {
   const hw = 0.866 * n * S + S;  // half-width + pad
   const hh = 2 * n * S + S;      // full height + pad
   svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2*hw} ${hh + S}`);
+  const layer = makeRenderLayer(n);
+  svgEl.appendChild(layer);
 
   let p = { x: 0, y: 0 };
   for (let d = 0; d < 3; d++)
     for (let i = 0; i < n; i++) {
       const nx = p.x+E[d].x, ny = p.y+E[d].y;
-      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      layer.appendChild(makeLine(p.x, p.y, nx, ny));
       p = { x: nx, y: ny };
     }
   for (let d = 2; d >= 0; d--)
     for (let i = 0; i < n; i++) {
       const nx = p.x-E[d].x, ny = p.y-E[d].y;
-      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      layer.appendChild(makeLine(p.x, p.y, nx, ny));
       p = { x: nx, y: ny };
     }
   for (const r of rhombi)
-    svgEl.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
+    layer.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
 
   if (showFlippable) {
     const flips = findFlippable(rhombi, n);
@@ -585,7 +670,7 @@ function renderTiling(svgEl, n, rhombi, showFlippable) {
       el.setAttribute("stroke", TILING_CONFIG.FLIP_STROKE);
       if (TILING_CONFIG.FLIP_STROKE_WIDTH) el.setAttribute("stroke-width", TILING_CONFIG.FLIP_STROKE_WIDTH);
       el.style.cursor = "pointer";
-      svgEl.appendChild(el);
+      layer.appendChild(el);
     }
   }
 }
@@ -629,6 +714,13 @@ function makeUrlBar(url) {
   return bar;
 }
 
+function makeBoxesLabel(count,n) {
+  const el = document.createElement("div");
+  el.className = "cell-boxes";
+	el.textContent = `Boxes: ${count} of ${n**3} possible.`;
+  return el;
+}
+
 // ── Build view URL ─────────────────────────────────────────
 
 function viewUrl(n, code) {
@@ -640,14 +732,18 @@ function viewUrl(n, code) {
 
 // ── Cell management ────────────────────────────────────────
 
-let cells = []; // { svgEl, selectEl, urlBar, cellDiv, n, code, rhombi }
+let cells = []; // { svgEl, selectEl, urlBar, boxesEl, cellDiv, n, code, rhombi }
 
 function updateCellUrl(cell) {
   cell.code = encodeTiling(cell.n, cell.rhombi);
+  const boxes = countBoxes(cell.n, cell.rhombi);
   const url = viewUrl(cell.n, cell.code);
   const oldBar = cell.urlBar;
+  const oldBoxes = cell.boxesEl;
   cell.urlBar = makeUrlBar(url);
+  cell.boxesEl = makeBoxesLabel(boxes,cell.n);
   cell.cellDiv.replaceChild(cell.urlBar, oldBar);
+  cell.cellDiv.replaceChild(cell.boxesEl, oldBoxes);
 }
 
 function rerenderCell(cell) {
@@ -698,11 +794,13 @@ function generateGrid(n, rows, cols) {
     renderTiling(svgEl, n, rhombi, toggleFlip.checked);
 
     const urlBar = makeUrlBar(viewUrl(n, code));
+    const boxesEl = makeBoxesLabel(countBoxes(n, rhombi),n);
+    cellDiv.appendChild(boxesEl);
     cellDiv.appendChild(urlBar);
 
     gridContainer.appendChild(cellDiv);
 
-    const cell = { svgEl, selectEl, urlBar, cellDiv, n, code, rhombi };
+    const cell = { svgEl, selectEl, urlBar, boxesEl, cellDiv, n, code, rhombi };
     cells.push(cell);
 
     svgEl.addEventListener("click", (evt) => {
@@ -711,7 +809,7 @@ function generateGrid(n, rows, cols) {
       pt.x = evt.clientX;
       pt.y = evt.clientY;
       const svgPt = pt.matrixTransform(svgEl.getScreenCTM().inverse());
-      const newRhombi = tryFlip(cell.rhombi, cell.n, svgPt.x, svgPt.y);
+      const newRhombi = tryFlip(cell.rhombi, cell.n, -svgPt.x, -svgPt.y - 2 * cell.n * S);
       if (newRhombi) {
         cell.rhombi = newRhombi;
         rerenderCell(cell);

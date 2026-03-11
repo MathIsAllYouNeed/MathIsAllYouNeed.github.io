@@ -77,6 +77,12 @@ function makeLine(x1, y1, x2, y2) {
   return el;
 }
 
+function makeRenderLayer(n) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  el.setAttribute("transform", `translate(0 ${-2 * n * S}) rotate(180)`);
+  return el;
+}
+
 function rhombusVerts(px, py, a, b) {
   const ea = E[a], eb = E[b];
   return [
@@ -126,24 +132,26 @@ function renderTiling(svgEl, n, rhombi) {
   const hw = 0.866 * n * S + S;
   const hh = 2 * n * S + S;
   svgEl.setAttribute("viewBox", `${-hw} ${-hh} ${2*hw} ${hh + S}`);
+  const layer = makeRenderLayer(n);
+  svgEl.appendChild(layer);
 
   let p = { x: 0, y: 0 };
   for (let d = 0; d < 3; d++) {
     for (let i = 0; i < n; i++) {
       const nx = p.x + E[d].x, ny = p.y + E[d].y;
-      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      layer.appendChild(makeLine(p.x, p.y, nx, ny));
       p = { x: nx, y: ny };
     }
   }
   for (let d = 2; d >= 0; d--) {
     for (let i = 0; i < n; i++) {
       const nx = p.x - E[d].x, ny = p.y - E[d].y;
-      svgEl.appendChild(makeLine(p.x, p.y, nx, ny));
+      layer.appendChild(makeLine(p.x, p.y, nx, ny));
       p = { x: nx, y: ny };
     }
   }
   for (const r of rhombi) {
-    svgEl.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
+    layer.appendChild(makePoly(rhombusVerts(r.px, r.py, r.a, r.b), COLORS[r.a + r.b - 1]));
   }
 }
 

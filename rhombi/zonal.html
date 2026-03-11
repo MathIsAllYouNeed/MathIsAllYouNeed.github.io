@@ -48,6 +48,38 @@
   .btn-gen  { background: #0f3460; color: #fff; }
   .btn-sign { background: #8b0000; color: #fff; }
   .btn-svg  { background: #533483; color: #fff; }
+  .link-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: min(90vw, 800px);
+    margin: 8px 0 12px;
+    font-size: 0.75rem;
+    font-family: monospace;
+  }
+  .link-row span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #555;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: #fafafa;
+  }
+  .copy-btn {
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    transition: background 0.2s;
+  }
+  .copy-btn:hover { background: #e8e8e8; }
+  .copy-btn.copied { background: #d4edda; border-color: #a3d9a5; }
   svg#canvas {
     background: #fff;
     border: 1px solid #ccc;
@@ -87,6 +119,11 @@
   </label>
 </div>
 
+<div class="link-row" id="permalink-row">
+  <span id="permalink-text"></span>
+  <button class="copy-btn" id="btn-copy-link" title="Copy URL" aria-label="Copy URL"></button>
+</div>
+
 <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
 
 <script>
@@ -110,6 +147,8 @@ const POS_COLOR = CONFIG.POS_COLOR;
 const NEG_COLOR = CONFIG.NEG_COLOR;
 const PATH_COLOR = CONFIG.PATH_COLOR;
 const KAPPA = 0.5522847498;
+const B62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const COPY_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 const STRATEGY_NAMES = [
   "uniform", "bias-left", "bias-right", "gaussian",
@@ -133,6 +172,29 @@ const STRATEGY_LABELS = {
   "momentum": "Momentum",
   "round-robin": "Round-robin",
 };
+
+function mixedRadixEncode(choices, bases) {
+  let value = 0n;
+  for (let i = choices.length - 1; i >= 0; i--)
+    value = value * BigInt(bases[i]) + BigInt(choices[i]);
+  if (value === 0n) return "A";
+  let result = "";
+  while (value > 0n) {
+    result = B62[Number(value % 62n)] + result;
+    value /= 62n;
+  }
+  return result;
+}
+
+function bigIntToB62(value) {
+  if (value === 0n) return "A";
+  let result = "";
+  while (value > 0n) {
+    result = B62[Number(value % 62n)] + result;
+    value /= 62n;
+  }
+  return result;
+}
 
 // ── Tiling generation ─────────────────────────────────────
 
@@ -241,10 +303,13 @@ function generateTiling(n, strategyName) {
   const strategy = makeStrategy(strategyName);
   strategy.reset();
   const state = makeState(n);
+  const choices = [], bases = [];
   const rhombi = [];
   let ascents = findAscents(state);
   while (ascents.length > 0) {
     const ci = strategy.pick(ascents, state);
+    choices.push(ci);
+    bases.push(ascents.length);
     const idx = ascents[ci];
     let px = 0, py = 0;
     for (let k = 0; k < idx; k++) { px += E[state[k]].x; py += E[state[k]].y; }
@@ -252,7 +317,28 @@ function generateTiling(n, strategyName) {
     const tmp = state[idx]; state[idx] = state[idx + 1]; state[idx + 1] = tmp;
     ascents = findAscents(state);
   }
-  return rhombi;
+  return { rhombi, code: mixedRadixEncode(choices, bases) };
+}
+
+function orderedVertexKeys(vertexMap) {
+  return [...vertexMap.entries()]
+    .sort((a, b) => a[1].x - b[1].x || a[1].y - b[1].y || a[0].localeCompare(b[0]))
+    .map(([key]) => key);
+}
+
+function encodeBits(bits) {
+  let value = 0n;
+  for (const bit of bits)
+    value = (value << 1n) | BigInt(bit ? 1 : 0);
+  return bigIntToB62(value);
+}
+
+function encodeSigns(vertexMap) {
+  return encodeBits(orderedVertexKeys(vertexMap).map(key => vertexMap.get(key).sign === 1 ? 1 : 0));
+}
+
+function encodeDiagonals(hasDiag) {
+  return encodeBits(hasDiag.map(flag => flag ? 1 : 0));
 }
 
 // ── Geometry helpers ──────────────────────────────────────
@@ -506,7 +592,7 @@ function drawAllFills(rhombi, hasDiag, vertexMap, regionColors) {
     el.setAttribute("d", d);
     el.setAttribute("fill", color);
     el.setAttribute("stroke", "none");
-    svgEl.appendChild(el);
+    renderLayer.appendChild(el);
   }
 
   function arcCP(m1, m2, sv) {
@@ -771,6 +857,11 @@ function pathToSVGd(beziers) {
 
 const svgEl = document.getElementById("canvas");
 const NS = "http://www.w3.org/2000/svg";
+const permalinkText = document.getElementById("permalink-text");
+const copyLinkBtn = document.getElementById("btn-copy-link");
+let renderLayer = null;
+
+copyLinkBtn.innerHTML = COPY_ICON;
 
 function addLine(x1, y1, x2, y2, color, width) {
   const el = document.createElementNS(NS, "line");
@@ -778,14 +869,14 @@ function addLine(x1, y1, x2, y2, color, width) {
   el.setAttribute("x2", x2); el.setAttribute("y2", y2);
   el.setAttribute("stroke", color);
   el.setAttribute("stroke-width", width);
-  svgEl.appendChild(el);
+  renderLayer.appendChild(el);
 }
 
 function addCircle(cx, cy, r, fill) {
   const el = document.createElementNS(NS, "circle");
   el.setAttribute("cx", cx); el.setAttribute("cy", cy);
   el.setAttribute("r", r); el.setAttribute("fill", fill);
-  svgEl.appendChild(el);
+  renderLayer.appendChild(el);
 }
 
 function addPath(d, color, width) {
@@ -796,12 +887,33 @@ function addPath(d, color, width) {
   el.setAttribute("fill", "none");
   el.setAttribute("stroke-linecap", "round");
   el.setAttribute("stroke-linejoin", "round");
-  svgEl.appendChild(el);
+  renderLayer.appendChild(el);
+}
+
+function makeRenderLayer(n) {
+  const el = document.createElementNS(NS, "g");
+  el.setAttribute("transform", `translate(0 ${-2 * n * S}) rotate(180)`);
+  return el;
 }
 
 // ── State ─────────────────────────────────────────────────
 
-let currentN, currentRhombi, currentVertexMap, currentEdgeMap, currentHasDiag;
+let currentN, currentRhombi, currentVertexMap, currentEdgeMap, currentHasDiag, currentCode;
+
+function buildPermalink() {
+  const url = new URL("zonal-view.html", window.location.href);
+  url.searchParams.set("n", currentN);
+  url.searchParams.set("c", currentCode);
+  url.searchParams.set("d", encodeDiagonals(currentHasDiag));
+  url.searchParams.set("s", encodeSigns(currentVertexMap));
+  return url.toString();
+}
+
+function updatePermalink() {
+  if (!currentRhombi || !currentVertexMap || !currentHasDiag) return;
+  permalinkText.textContent = buildPermalink();
+  permalinkText.title = permalinkText.textContent;
+}
 
 // ── Render ────────────────────────────────────────────────
 
@@ -818,6 +930,8 @@ function render() {
   const showRhombusEdges = document.getElementById("chk-rhombus-edges").checked;
   const showDiagEdges = document.getElementById("chk-diag-edges").checked;
   const unboundedMode = document.getElementById("sel-unbounded").value;
+  renderLayer = makeRenderLayer(n);
+  svgEl.appendChild(renderLayer);
 
   // Region fills (drawn first so they're behind edges/paths)
   if (document.getElementById("chk-fills").checked) {
@@ -894,18 +1008,22 @@ function generate() {
   currentN = parseInt(inputN.value, 10);
   if (isNaN(currentN) || currentN < 2 || currentN > 50) return alert("n must be 2–50.");
   const diagProb = parseInt(inputDiag.value, 10) / 100;
-  currentRhombi = generateTiling(currentN, stratSelect.value);
+  const { rhombi, code } = generateTiling(currentN, stratSelect.value);
+  currentRhombi = rhombi;
+  currentCode = code;
   currentHasDiag = currentRhombi.map(() => Math.random() < diagProb);
   const { vertexMap, edges } = collectVerticesAndEdges(currentRhombi);
   currentVertexMap = vertexMap;
   currentEdgeMap = edges;
   assignSigns(currentVertexMap);
+  updatePermalink();
   render();
 }
 
 function resign() {
   if (!currentVertexMap) return;
   assignSigns(currentVertexMap);
+  updatePermalink();
   render();
 }
 
@@ -927,6 +1045,12 @@ document.getElementById("btn-export-svg").addEventListener("click", () => {
   a.download = `zonal-patchworking-n${currentN}.svg`;
   a.click();
   URL.revokeObjectURL(url);
+});
+copyLinkBtn.addEventListener("click", () => {
+  if (!permalinkText.textContent) return;
+  navigator.clipboard.writeText(permalinkText.textContent);
+  copyLinkBtn.classList.add("copied");
+  setTimeout(() => copyLinkBtn.classList.remove("copied"), 600);
 });
 
 generate();
