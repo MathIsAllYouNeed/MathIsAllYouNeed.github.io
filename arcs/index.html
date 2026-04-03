@@ -252,6 +252,18 @@
       </div>
 
       <div>
+        <label for="backgroundTheme">Background</label>
+        <select id="backgroundTheme">
+          <option value="dark" selected>Dark gradient</option>
+          <option value="black">Black</option>
+          <option value="white">White</option>
+          <option value="slate">Slate blue</option>
+          <option value="forest">Deep forest</option>
+          <option value="plum">Muted plum</option>
+        </select>
+      </div>
+
+      <div>
         <label for="size">Tile size</label>
         <input id="size" type="range" min="32" max="180" value="78" />
         <div class="value" id="sizeValue"></div>
@@ -309,6 +321,7 @@
       togglePanel: document.getElementById('togglePanel'),
       mode: document.getElementById('mode'),
       arcColor: document.getElementById('arcColor'),
+      backgroundTheme: document.getElementById('backgroundTheme'),
       size: document.getElementById('size'),
       rate: document.getElementById('rate'),
       duration: document.getElementById('duration'),
@@ -326,9 +339,33 @@
     };
 
     const palette = {
-      bg1: '#0b0c10',
-      bg2: '#151923',
       grid: '#91a0bb',
+      backgrounds: {
+        dark: {
+          type: 'radial',
+          stops: ['#171c27', '#0f1218', '#090a0d']
+        },
+        black: {
+          type: 'solid',
+          color: '#000000'
+        },
+        white: {
+          type: 'solid',
+          color: '#ffffff'
+        },
+        slate: {
+          type: 'radial',
+          stops: ['#253247', '#161d2a', '#0f131b']
+        },
+        forest: {
+          type: 'radial',
+          stops: ['#1a2c25', '#0f1714', '#0a0d0b']
+        },
+        plum: {
+          type: 'radial',
+          stops: ['#30253a', '#1a1520', '#100d13']
+        }
+      }
     };
 
     const state = {
@@ -336,6 +373,7 @@
       height: window.innerHeight,
       mode: controls.mode.value,
       arcColor: controls.arcColor.value,
+      backgroundTheme: controls.backgroundTheme.value,
       size: Number(controls.size.value),
       rate: Number(controls.rate.value),
       duration: Number(controls.duration.value),
@@ -548,13 +586,21 @@
     }
 
     function drawBackground() {
+      const theme = palette.backgrounds[state.backgroundTheme] || palette.backgrounds.dark;
+
+      if (theme.type === 'solid') {
+        ctx.fillStyle = theme.color;
+        ctx.fillRect(0, 0, state.width, state.height);
+        return;
+      }
+
       const grad = ctx.createRadialGradient(
         state.width * 0.30, state.height * 0.25, 40,
         state.width * 0.30, state.height * 0.25, Math.max(state.width, state.height)
       );
-      grad.addColorStop(0, '#171c27');
-      grad.addColorStop(0.45, '#0f1218');
-      grad.addColorStop(1, '#090a0d');
+      grad.addColorStop(0, theme.stops[0]);
+      grad.addColorStop(0.45, theme.stops[1]);
+      grad.addColorStop(1, theme.stops[2]);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, state.width, state.height);
     }
@@ -563,7 +609,8 @@
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      const shadowColor = hexToRgba(state.arcColor, 0.14);
+      const onLight = state.backgroundTheme === 'white';
+      const shadowColor = onLight ? hexToRgba(state.arcColor, 0.08) : hexToRgba(state.arcColor, 0.14);
 
       for (const tile of state.tiles) {
         const { verts, center, angle } = tile;
@@ -588,7 +635,9 @@
 
         if (state.showGrid && state.outline > 0) {
           polygonPath(verts);
-          ctx.strokeStyle = `rgba(145, 160, 187, ${state.outline})`;
+          ctx.strokeStyle = onLight
+            ? `rgba(70, 82, 100, ${state.outline})`
+            : `rgba(145, 160, 187, ${state.outline})`;
           ctx.lineWidth = 1;
           ctx.stroke();
         }
@@ -646,6 +695,7 @@
     function syncStateFromControls(rebuild = false) {
       state.mode = controls.mode.value;
       state.arcColor = controls.arcColor.value;
+      state.backgroundTheme = controls.backgroundTheme.value;
       state.size = Number(controls.size.value);
       state.rate = Number(controls.rate.value);
       state.duration = Number(controls.duration.value);
@@ -658,6 +708,7 @@
 
     controls.mode.addEventListener('change', () => syncStateFromControls(true));
     controls.arcColor.addEventListener('change', () => syncStateFromControls(false));
+    controls.backgroundTheme.addEventListener('change', () => syncStateFromControls(false));
     controls.size.addEventListener('input', () => syncStateFromControls(true));
     controls.rate.addEventListener('input', () => syncStateFromControls(false));
     controls.duration.addEventListener('input', () => syncStateFromControls(false));
