@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Tiling Arc Playground 2</title>
+  <title>Tiling Arc Playground - Connected Paths</title>
   <style>
     :root {
       color-scheme: dark;
@@ -207,6 +207,26 @@
       line-height: 1.35;
     }
 
+    .stats {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .stats-title {
+      font-size: 12px;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .stats-body {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.45;
+      white-space: pre-line;
+      min-height: 36px;
+    }
+
     @media (max-width: 640px) {
       .grid {
         grid-template-columns: 1fr;
@@ -247,8 +267,8 @@
   <div class="panel" id="panel">
     <div class="panel-header">
       <div class="panel-heading">
-        <div class="title">Tiling Arc Playground 2</div>
-        <div class="subtitle">Tap the artwork to hide/show controls. Drag to pan. Wheel or pinch to zoom.</div>
+        <div class="title">Connected Paths Playground</div>
+        <div class="subtitle">Experiment branch for path connectivity. Tap the artwork to hide/show controls. Drag to pan. Wheel or pinch to zoom.</div>
       </div>
       <button id="togglePanel" class="panel-toggle" type="button" aria-label="Hide controls" title="Hide controls">⟨</button>
     </div>
@@ -325,6 +345,17 @@
           <div class="value" id="outlineValue"></div>
         </div>
 
+        <div>
+          <label for="connectedColor">Base arc color</label>
+          <select id="connectedColor">
+            <option value="#ffc857" selected>Yellow</option>
+            <option value="#ffffff">White</option>
+            <option value="#ff6b00">Orange</option>
+            <option value="#ff4d6d">Signal pink</option>
+            <option value="#00d1b2">Bright teal</option>
+          </select>
+        </div>
+
         <div class="row-full checkbox-row">
           <input id="showGrid" type="checkbox" checked />
           <label for="showGrid">Show tile outlines</label>
@@ -333,6 +364,11 @@
         <div class="row-full checkbox-row">
           <input id="showTorusBounds" type="checkbox" />
           <label for="showTorusBounds">Show torus boundaries</label>
+        </div>
+
+        <div class="row-full checkbox-row">
+          <input id="highlightConnected" type="checkbox" checked />
+          <label for="highlightConnected">Heatmap path colors</label>
         </div>
 
         <div class="row-full buttons">
@@ -344,6 +380,11 @@
 
       <div class="footer">
         Keyboard: space pauses, enter rotates one tile, arrows pan, +/− zoom, r randomizes.
+      </div>
+
+      <div class="stats">
+        <div class="stats-title">Path Stats</div>
+        <div class="stats-body" id="statsBody">Computing…</div>
       </div>
     </div>
   </div>
@@ -366,8 +407,11 @@
       duration: document.getElementById('duration'),
       lineWidth: document.getElementById('lineWidth'),
       outline: document.getElementById('outline'),
+      connectedColor: document.getElementById('connectedColor'),
       showGrid: document.getElementById('showGrid'),
       showTorusBounds: document.getElementById('showTorusBounds'),
+      highlightConnected: document.getElementById('highlightConnected'),
+      statsBody: document.getElementById('statsBody'),
       randomize: document.getElementById('randomize'),
       nudge: document.getElementById('nudge'),
       pause: document.getElementById('pause'),
@@ -403,8 +447,10 @@
       duration: Number(controls.duration.value),
       lineWidth: Number(controls.lineWidth.value),
       outline: Number(controls.outline.value),
+      connectedColor: controls.connectedColor.value,
       showGrid: controls.showGrid.checked,
       showTorusBounds: controls.showTorusBounds.checked,
+      highlightConnected: controls.highlightConnected.checked,
       panelCollapsed: window.innerWidth <= 640,
       paused: false,
       cameraX: 0,
@@ -415,6 +461,8 @@
       pointers: new Map(),
       drag: null,
       pinch: null,
+      connectivity: null,
+      connectivityDirty: true,
     };
 
     function hexToRgba(hex, alpha) {
@@ -440,10 +488,6 @@
 
     function add(a, b) {
       return { x: a.x + b.x, y: a.y + b.y };
-    }
-
-    function sub(a, b) {
-      return { x: a.x - b.x, y: a.y - b.y };
     }
 
     function mul(a, t) {
@@ -473,6 +517,12 @@
       if (mode === 'square') return [0, 2];
       if (mode === 'hex') return [0, 2, 4];
       return [0];
+    }
+
+    function sidesForMode(mode) {
+      if (mode === 'square') return 4;
+      if (mode === 'hex') return 6;
+      return 3;
     }
 
     function stepAngle(mode) {
@@ -521,6 +571,269 @@
       return { i, j, angle: phase, target: phase, step };
     }
 
+    function tileKey(i, j) {
+      return `${i},${j}`;
+    }
+
+    function tileRotationIndex(tile) {
+      return mod(Math.round(tile.angle / tile.step), sidesForMode(state.mode));
+    }
+
+    function tileArcTopology(tile) {
+      const sides = sidesForMode(state.mode);
+      const shift = tileRotationIndex(tile);
+      return selectedIndices(state.mode).map((baseVertex) => {
+        const vertex = mod(baseVertex + shift, sides);
+        return {
+          edgeA: mod(vertex - 1, sides),
+          edgeB: vertex,
+        };
+      });
+    }
+
+    function edgeNeighborSquare(i, j, edge) {
+      if (edge === 0) return { i, j: j - 1, edge: 2 };
+      if (edge === 1) return { i: i + 1, j, edge: 3 };
+      if (edge === 2) return { i, j: j + 1, edge: 0 };
+      return { i: i - 1, j, edge: 1 };
+    }
+
+    function edgeNeighborHex(i, j, edge) {
+      if (edge === 0) return { i: i + 1, j: j - 1, edge: 3 };
+      if (edge === 1) return { i: i + 1, j, edge: 4 };
+      if (edge === 2) return { i, j: j + 1, edge: 5 };
+      if (edge === 3) return { i: i - 1, j: j + 1, edge: 0 };
+      if (edge === 4) return { i: i - 1, j, edge: 1 };
+      return { i, j: j - 1, edge: 2 };
+    }
+
+    function edgeNeighborTriangle(i, j, edge) {
+      const up = ((i + j) % 2 === 0);
+      if (up) {
+        if (edge === 0) return { i: i + 1, j, edge: 2 };
+        if (edge === 1) return { i, j: j + 1, edge: 0 };
+        return { i: i - 1, j, edge: 1 };
+      }
+      if (edge === 0) return { i, j: j - 1, edge: 1 };
+      if (edge === 1) return { i: i + 1, j, edge: 2 };
+      return { i: i - 1, j, edge: 0 };
+    }
+
+    function edgeNeighbor(i, j, edge) {
+      if (state.mode === 'square') return edgeNeighborSquare(i, j, edge);
+      if (state.mode === 'hex') return edgeNeighborHex(i, j, edge);
+      return edgeNeighborTriangle(i, j, edge);
+    }
+
+    function normalizedEdgeRef(i, j, edge) {
+      return {
+        i: mod(i, state.torus.nx),
+        j: mod(j, state.torus.ny),
+        edge,
+      };
+    }
+
+    function edgeRefId(ref) {
+      return `${ref.i},${ref.j},${ref.edge}`;
+    }
+
+    function midpointNodeId(i, j, edge) {
+      const a = normalizedEdgeRef(i, j, edge);
+      const neighbor = edgeNeighbor(i, j, edge);
+      const b = normalizedEdgeRef(neighbor.i, neighbor.j, neighbor.edge);
+      const aId = edgeRefId(a);
+      const bId = edgeRefId(b);
+      return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+    }
+
+    function arcEdgeKey(tile, arcIndex) {
+      return `${tile.i},${tile.j},${arcIndex}`;
+    }
+
+    function heatmapColor(length, minLength, maxLength) {
+      if (maxLength <= minLength) {
+        return 'hsl(200 70% 58%)';
+      }
+      const t = clamp((length - minLength) / (maxLength - minLength), 0, 1);
+      const hue = 220 - 220 * t;
+      const saturation = 78 - 8 * t;
+      const lightness = 58 - 8 * t;
+      return `hsl(${hue} ${saturation}% ${lightness}%)`;
+    }
+
+    function leaderCountFor(totalComponents) {
+      return clamp(Math.round(totalComponents * 0.1), 1, 3);
+    }
+
+    function updateStats() {
+      const stats = state.connectivity?.stats;
+      if (!stats) {
+        controls.statsBody.textContent = 'Computing…';
+        return;
+      }
+
+      const lines = [
+        `Closed paths: ${stats.closedCount}`,
+        `All components: ${stats.componentCount}`,
+        `Top group size: ${stats.leaderCount}`,
+      ];
+
+      if (stats.closedByLength.length) {
+        lines.push('');
+        lines.push('Closed paths by length:');
+        for (const entry of stats.closedByLength) {
+          lines.push(`${entry.length}: ${entry.count}`);
+        }
+      } else {
+        lines.push('');
+        lines.push('Closed paths by length: none');
+      }
+
+      controls.statsBody.textContent = lines.join('\n');
+    }
+
+    function buildConnectivity() {
+      if (!state.torus) return null;
+      const nodeIndex = new Map();
+      const parent = [];
+      const rank = [];
+      const edges = [];
+      const nodeDegrees = new Map();
+
+      function ensureNode(id) {
+        let idx = nodeIndex.get(id);
+        if (idx !== undefined) return idx;
+        idx = parent.length;
+        nodeIndex.set(id, idx);
+        parent.push(idx);
+        rank.push(0);
+        return idx;
+      }
+
+      function find(x) {
+        let root = x;
+        while (parent[root] !== root) root = parent[root];
+        while (parent[x] !== x) {
+          const next = parent[x];
+          parent[x] = root;
+          x = next;
+        }
+        return root;
+      }
+
+      function union(a, b) {
+        let ra = find(a);
+        let rb = find(b);
+        if (ra === rb) return;
+        if (rank[ra] < rank[rb]) {
+          const tmp = ra;
+          ra = rb;
+          rb = tmp;
+        }
+        parent[rb] = ra;
+        if (rank[ra] === rank[rb]) rank[ra] += 1;
+      }
+
+      function bumpDegree(nodeId) {
+        nodeDegrees.set(nodeId, (nodeDegrees.get(nodeId) || 0) + 1);
+      }
+
+      for (const tile of state.torus.tiles) {
+        const arcs = tileArcTopology(tile);
+        arcs.forEach((arc, arcIndex) => {
+          const nodeAId = midpointNodeId(tile.i, tile.j, arc.edgeA);
+          const nodeBId = midpointNodeId(tile.i, tile.j, arc.edgeB);
+          const nodeA = ensureNode(nodeAId);
+          const nodeB = ensureNode(nodeBId);
+          union(nodeA, nodeB);
+          bumpDegree(nodeAId);
+          bumpDegree(nodeBId);
+          edges.push({
+            tileKey: tileKey(tile.i, tile.j),
+            arcIndex,
+            nodeA,
+            edgeKey: arcEdgeKey(tile, arcIndex),
+            nodeAId,
+            nodeBId,
+          });
+        });
+      }
+
+      const componentSizes = new Map();
+      for (const edge of edges) {
+        const root = find(edge.nodeA);
+        edge.root = root;
+        componentSizes.set(root, (componentSizes.get(root) || 0) + 1);
+      }
+
+      const components = new Map();
+      for (const edge of edges) {
+        let component = components.get(edge.root);
+        if (!component) {
+          component = {
+            root: edge.root,
+            size: componentSizes.get(edge.root) || 0,
+            edgeKeys: new Set(),
+            nodeIds: new Set(),
+            closed: false,
+            color: null,
+          };
+          components.set(edge.root, component);
+        }
+        component.edgeKeys.add(edge.edgeKey);
+        component.nodeIds.add(edge.nodeAId);
+        component.nodeIds.add(edge.nodeBId);
+      }
+
+      const lengths = [...components.values()].map((component) => component.size);
+      const minLength = lengths.length ? Math.min(...lengths) : 0;
+      const maxLength = lengths.length ? Math.max(...lengths) : 1;
+      const ordered = [...components.values()].sort((a, b) => {
+        if (b.size !== a.size) return b.size - a.size;
+        return a.root - b.root;
+      });
+      const leaderCount = leaderCountFor(ordered.length);
+      const topRoots = new Set(ordered.slice(0, leaderCount).map((component) => component.root));
+      const hottestColor = heatmapColor(maxLength, minLength, maxLength);
+
+      for (const component of ordered) {
+        component.closed = [...component.nodeIds].every((nodeId) => (nodeDegrees.get(nodeId) || 0) === 2);
+        component.color = topRoots.has(component.root)
+          ? hottestColor
+          : heatmapColor(component.size, minLength, maxLength);
+      }
+
+      const tileColors = new Map();
+      for (const edge of edges) {
+        const component = components.get(edge.root);
+        if (!tileColors.has(edge.tileKey)) tileColors.set(edge.tileKey, []);
+        tileColors.get(edge.tileKey)[edge.arcIndex] = component.color;
+      }
+
+      const closedByLengthMap = new Map();
+      let closedCount = 0;
+      for (const component of components.values()) {
+        if (!component.closed) continue;
+        closedCount += 1;
+        closedByLengthMap.set(component.size, (closedByLengthMap.get(component.size) || 0) + 1);
+      }
+
+      const closedByLength = [...closedByLengthMap.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([length, count]) => ({ length, count }));
+
+      return {
+        components,
+        tileColors,
+        stats: {
+          componentCount: components.size,
+          closedCount,
+          closedByLength,
+          leaderCount,
+        },
+      };
+    }
+
     function buildTorus(options = {}) {
       const preserve = Boolean(options.preserve) && state.torus && state.torus.mode === state.mode;
       const previous = preserve ? state.torus : null;
@@ -561,6 +874,7 @@
       }
 
       state.torus = { nx, ny, tiles, step, mode: state.mode };
+      state.connectivityDirty = true;
     }
 
     function tileAt(i, j) {
@@ -707,19 +1021,40 @@
       }
     }
 
-    function drawMotif(verts) {
+    function traceArc(verts, vertexIndex) {
+      const n = verts.length;
+      const i = vertexIndex % n;
+      const v = verts[i];
+      const prev = verts[(i - 1 + n) % n];
+      const next = verts[(i + 1) % n];
+      const m1 = midpoint(prev, v);
+      const m2 = midpoint(v, next);
+      drawArcPolyline(v, m1, m2);
+    }
+
+    function drawMotif(verts, tile) {
       const picks = selectedIndices(state.mode);
-      ctx.beginPath();
-      for (const i of picks) {
-        const n = verts.length;
-        const v = verts[i % n];
-        const prev = verts[(i - 1 + n) % n];
-        const next = verts[(i + 1) % n];
-        const m1 = midpoint(prev, v);
-        const m2 = midpoint(v, next);
-        drawArcPolyline(v, m1, m2);
-      }
-      ctx.stroke();
+      const colors = state.connectivity?.tileColors.get(tileKey(tile.i, tile.j)) || [];
+      const onLight = state.backgroundTheme === 'white';
+
+      picks.forEach((vertexIndex, arcIndex) => {
+        const stroke = state.highlightConnected
+          ? (colors[arcIndex] || state.connectedColor)
+          : state.arcColor;
+        const shadowAlpha = onLight ? 0.08 : 0.14;
+
+        ctx.beginPath();
+        traceArc(verts, vertexIndex);
+        ctx.strokeStyle = hexToRgba(stroke, shadowAlpha);
+        ctx.lineWidth = state.lineWidth + 5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        traceArc(verts, vertexIndex);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = state.lineWidth;
+        ctx.stroke();
+      });
     }
 
     function drawBackground() {
@@ -740,28 +1075,20 @@
       ctx.fillRect(0, 0, state.width, state.height);
     }
 
-    function drawOneTile(verts, center, angle) {
+    function drawOneTile(verts, center, tile) {
       ctx.save();
       polygonPath(verts);
       ctx.clip();
 
       ctx.translate(center.x, center.y);
-      ctx.rotate(angle);
+      ctx.rotate(tile.angle);
       ctx.translate(-center.x, -center.y);
 
-      const onLight = state.backgroundTheme === 'white';
-      const shadowColor = onLight ? hexToRgba(state.arcColor, 0.08) : hexToRgba(state.arcColor, 0.14);
-
-      ctx.strokeStyle = shadowColor;
-      ctx.lineWidth = state.lineWidth + 5;
-      drawMotif(verts);
-
-      ctx.strokeStyle = state.arcColor;
-      ctx.lineWidth = state.lineWidth;
-      drawMotif(verts);
+      drawMotif(verts, tile);
 
       ctx.restore();
 
+      const onLight = state.backgroundTheme === 'white';
       if (state.showGrid && state.outline > 0) {
         polygonPath(verts);
         ctx.strokeStyle = onLight
@@ -786,7 +1113,7 @@
               const cx = (i + 0.5) * s + copyX * A.x + copyY * B.x - cam.x;
               const cy = (j + 0.5) * s + copyX * A.y + copyY * B.y - cam.y;
               if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
-              drawOneTile(squareVertices(cx, cy, s), { x: cx, y: cy }, tile.angle);
+              drawOneTile(squareVertices(cx, cy, s), { x: cx, y: cy }, tile);
             }
           }
         }
@@ -812,7 +1139,7 @@
               const cx = baseX + copyA * A.x + copyB * B.x - cam.x;
               const cy = baseY + copyA * A.y + copyB * B.y - cam.y;
               if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
-              drawOneTile(hexVertices(cx, cy, r), { x: cx, y: cy }, tile.angle);
+              drawOneTile(hexVertices(cx, cy, r), { x: cx, y: cy }, tile);
             }
           }
         }
@@ -838,7 +1165,7 @@
               const verts = triangleVertices(x, y, s, up);
               const c = centroid(verts);
               if (c.x < -s || c.x > state.width + s || c.y < -s || c.y > state.height + s) continue;
-              drawOneTile(verts, c, tile.angle);
+              drawOneTile(verts, c, tile);
             }
           }
         }
@@ -890,6 +1217,7 @@
 
       const angularSpeed = stepAngle(state.mode) / Math.max(0.01, state.duration);
       if (!state.torus) return;
+      let settledTile = false;
       for (const tile of state.torus.tiles) {
         const diff = tile.target - tile.angle;
         if (Math.abs(diff) < 1e-5) {
@@ -897,12 +1225,21 @@
           continue;
         }
         const step = angularSpeed * dt;
-        if (diff > 0) tile.angle = Math.min(tile.angle + step, tile.target);
-        else tile.angle = Math.max(tile.angle - step, tile.target);
+        const nextAngle = diff > 0
+          ? Math.min(tile.angle + step, tile.target)
+          : Math.max(tile.angle - step, tile.target);
+        if (nextAngle === tile.target && tile.angle !== tile.target) settledTile = true;
+        tile.angle = nextAngle;
       }
+      if (settledTile) state.connectivityDirty = true;
     }
 
     function draw() {
+      if (!state.connectivity || state.connectivityDirty) {
+        state.connectivity = buildConnectivity();
+        state.connectivityDirty = false;
+        updateStats();
+      }
       drawBackground();
       drawTiles();
       drawTorusBoundaries();
@@ -927,8 +1264,10 @@
       state.duration = Number(controls.duration.value);
       state.lineWidth = Number(controls.lineWidth.value);
       state.outline = Number(controls.outline.value);
+      state.connectedColor = controls.connectedColor.value;
       state.showGrid = controls.showGrid.checked;
       state.showTorusBounds = controls.showTorusBounds.checked;
+      state.highlightConnected = controls.highlightConnected.checked;
       updateLabels();
       if (sizeChange) {
         setTileSize(Number(controls.size.value));
@@ -1052,8 +1391,10 @@
     controls.duration.addEventListener('input', () => syncStateFromControls());
     controls.lineWidth.addEventListener('input', () => syncStateFromControls());
     controls.outline.addEventListener('input', () => syncStateFromControls());
+    controls.connectedColor.addEventListener('change', () => syncStateFromControls());
     controls.showGrid.addEventListener('change', () => syncStateFromControls());
     controls.showTorusBounds.addEventListener('change', () => syncStateFromControls());
+    controls.highlightConnected.addEventListener('change', () => syncStateFromControls());
     controls.randomize.addEventListener('click', randomize);
     controls.nudge.addEventListener('click', randomTurn);
     controls.pause.addEventListener('click', () => {
