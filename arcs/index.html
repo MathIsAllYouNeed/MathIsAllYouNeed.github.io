@@ -2,12 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Tiling Arc Playground</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0b0c10;
       --panel: rgba(20, 24, 32, 0.82);
       --panel-border: rgba(255, 255, 255, 0.08);
       --text: #e8ebf2;
@@ -22,15 +21,22 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: radial-gradient(circle at 30% 20%, #161a23 0%, #0b0c10 55%, #07080b 100%);
+      background: #090a0d;
       color: var(--text);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
     }
 
     canvas {
       display: block;
       width: 100vw;
       height: 100vh;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    canvas.dragging {
+      cursor: grabbing;
     }
 
     .panel {
@@ -236,101 +242,98 @@
       }
     }
   </style>
-  <script data-goatcounter="https://rasa.goatcounter.com/count"
-        async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
   <div class="panel" id="panel">
     <div class="panel-header">
       <div class="panel-heading">
         <div class="title">Tiling Arc Playground</div>
-        <div class="subtitle">Choose a tiling and let random tiles rotate through their natural symmetry.</div>
+        <div class="subtitle">Tap the artwork to hide/show controls. Drag to pan. Wheel or pinch to zoom.</div>
       </div>
       <button id="togglePanel" class="panel-toggle" type="button" aria-label="Hide controls" title="Hide controls">⟨</button>
     </div>
 
     <div class="panel-body">
       <div class="grid">
-      <div>
-        <label for="mode">Tiling</label>
-        <select id="mode">
-          <option value="square">Square</option>
-          <option value="hex" selected>Hexagon</option>
-          <option value="triangle">Triangle</option>
-        </select>
-      </div>
+        <div>
+          <label for="mode">Tiling</label>
+          <select id="mode">
+            <option value="square">Square</option>
+            <option value="hex" selected>Hexagon</option>
+            <option value="triangle">Triangle</option>
+          </select>
+        </div>
 
-      <div>
-        <label for="arcColor">Arc color</label>
-        <select id="arcColor">
-          <option value="#eaf1ff">Moonlight</option>
-          <option value="#bde7d1">Seafoam</option>
-          <option value="#d9c8ff">Lavender</option>
-          <option value="#ffc857" selected>Rich yellow</option>
-          <option value="#ffb3a7">Soft coral</option>
-        </select>
-      </div>
+        <div>
+          <label for="arcColor">Arc color</label>
+          <select id="arcColor">
+            <option value="#000000">Black</option>
+            <option value="#d62828">Red</option>
+            <option value="#eaf1ff">Moonlight</option>
+            <option value="#bde7d1">Seafoam</option>
+            <option value="#d9c8ff">Lavender</option>
+            <option value="#ffc857" selected>Rich yellow</option>
+            <option value="#ffb3a7">Soft coral</option>
+          </select>
+        </div>
 
-      <div>
-        <label for="backgroundTheme">Background</label>
-        <select id="backgroundTheme">
-          <option value="dark" selected>Dark gradient</option>
-          <option value="black">Black</option>
-          <option value="white">White</option>
-          <option value="slate">Slate blue</option>
-          <option value="forest">Deep forest</option>
-          <option value="plum">Muted plum</option>
-        </select>
-      </div>
+        <div>
+          <label for="backgroundTheme">Background</label>
+          <select id="backgroundTheme">
+            <option value="dark" selected>Dark gradient</option>
+            <option value="black">Black</option>
+            <option value="white">White</option>
+            <option value="slate">Slate blue</option>
+            <option value="forest">Deep forest</option>
+            <option value="plum">Muted plum</option>
+          </select>
+        </div>
 
-      <div>
-        <label for="size">Tile size</label>
-        <input id="size" type="range" min="32" max="180" value="78" />
-        <div class="value" id="sizeValue"></div>
-      </div>
+        <div>
+          <label for="size">Tile size</label>
+          <input id="size" type="range" min="32" max="180" value="78" />
+          <div class="value" id="sizeValue"></div>
+        </div>
 
-      <div>
-        <label for="rate">Random turns / second</label>
-        <input id="rate" type="range" min="0" max="12" step="0.1" value="2.3" />
-        <div class="value" id="rateValue"></div>
-      </div>
+        <div>
+          <label for="rate">Random turns / second</label>
+          <input id="rate" type="range" min="0" max="12" step="0.1" value="2.3" />
+          <div class="value" id="rateValue"></div>
+        </div>
 
-      <div>
-        <label for="duration">Turn duration</label>
-        <input id="duration" type="range" min="0.08" max="2.0" step="0.01" value="0.42" />
-        <div class="value" id="durationValue"></div>
-      </div>
+        <div>
+          <label for="duration">Turn duration</label>
+          <input id="duration" type="range" min="0.08" max="2.0" step="0.01" value="0.42" />
+          <div class="value" id="durationValue"></div>
+        </div>
 
-      <div>
-        <label for="lineWidth">Line width</label>
-        <input id="lineWidth" type="range" min="1" max="12" step="0.1" value="3.2" />
-        <div class="value" id="lineWidthValue"></div>
-      </div>
+        <div>
+          <label for="lineWidth">Line width</label>
+          <input id="lineWidth" type="range" min="1" max="12" step="0.1" value="3.2" />
+          <div class="value" id="lineWidthValue"></div>
+        </div>
 
-      <div>
-        <label for="outline">Outline opacity</label>
-        <input id="outline" type="range" min="0" max="1" step="0.01" value="0.18" />
-        <div class="value" id="outlineValue"></div>
-      </div>
+        <div>
+          <label for="outline">Outline opacity</label>
+          <input id="outline" type="range" min="0" max="1" step="0.01" value="0.18" />
+          <div class="value" id="outlineValue"></div>
+        </div>
 
-      <div class="row-full checkbox-row">
-        <input id="showGrid" type="checkbox" checked />
-        <label for="showGrid">Show tile outlines</label>
-      </div>
+        <div class="row-full checkbox-row">
+          <input id="showGrid" type="checkbox" checked />
+          <label for="showGrid">Show tile outlines</label>
+        </div>
 
-      <div class="row-full buttons">
-        <button id="randomize">Randomize</button>
-        <button id="nudge">Rotate one tile</button>
-        <button id="pause">Pause</button>
+        <div class="row-full buttons">
+          <button id="randomize">Randomize</button>
+          <button id="nudge">Rotate one tile</button>
+          <button id="pause">Pause</button>
+        </div>
       </div>
-    </div>
-
-          </div>
 
       <div class="footer">
-      Hide the controls with the side handle. Keyboard: space pauses, enter rotates one tile, r randomizes, h hides controls.
-    </div>
-        </div>
+        Keyboard: space pauses, enter rotates one tile, arrows pan, +/− zoom, r randomizes.
+      </div>
     </div>
   </div>
 
@@ -365,30 +368,12 @@
     const palette = {
       grid: '#91a0bb',
       backgrounds: {
-        dark: {
-          type: 'radial',
-          stops: ['#171c27', '#0f1218', '#090a0d']
-        },
-        black: {
-          type: 'solid',
-          color: '#000000'
-        },
-        white: {
-          type: 'solid',
-          color: '#ffffff'
-        },
-        slate: {
-          type: 'radial',
-          stops: ['#253247', '#161d2a', '#0f131b']
-        },
-        forest: {
-          type: 'radial',
-          stops: ['#1a2c25', '#0f1714', '#0a0d0b']
-        },
-        plum: {
-          type: 'radial',
-          stops: ['#30253a', '#1a1520', '#100d13']
-        }
+        dark: { type: 'radial', stops: ['#171c27', '#0f1218', '#090a0d'] },
+        black: { type: 'solid', color: '#000000' },
+        white: { type: 'solid', color: '#ffffff' },
+        slate: { type: 'radial', stops: ['#253247', '#161d2a', '#0f131b'] },
+        forest: { type: 'radial', stops: ['#1a2c25', '#0f1714', '#0a0d0b'] },
+        plum: { type: 'radial', stops: ['#30253a', '#1a1520', '#100d13'] },
       }
     };
 
@@ -406,8 +391,14 @@
       showGrid: controls.showGrid.checked,
       panelCollapsed: window.innerWidth <= 640,
       paused: false,
-      tiles: [],
+      cameraX: 0,
+      cameraY: 0,
+      torus: null,
       lastTime: performance.now(),
+      mobileInitialized: false,
+      pointers: new Map(),
+      drag: null,
+      pinch: null,
     };
 
     function hexToRgba(hex, alpha) {
@@ -419,43 +410,32 @@
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
-    function updateLabels() {
-      controls.sizeValue.textContent = `${Math.round(state.size)} px`;
-      controls.rateValue.textContent = `${state.rate.toFixed(1)}`;
-      controls.durationValue.textContent = `${state.duration.toFixed(2)} s`;
-      controls.lineWidthValue.textContent = `${state.lineWidth.toFixed(1)} px`;
-      controls.outlineValue.textContent = `${Math.round(state.outline * 100)}%`;
-      controls.pause.textContent = state.paused ? 'Resume' : 'Pause';
-      controls.togglePanel.textContent = state.panelCollapsed ? '⟩' : '⟨';
-      controls.togglePanel.setAttribute('aria-label', state.panelCollapsed ? 'Show controls' : 'Hide controls');
-      controls.togglePanel.title = state.panelCollapsed ? 'Show controls' : 'Hide controls';
-      controls.panel.classList.toggle('collapsed', state.panelCollapsed);
+    function clamp(v, a, b) {
+      return Math.max(a, Math.min(b, v));
     }
 
-    function resize() {
-      state.width = window.innerWidth;
-      state.height = window.innerHeight;
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(state.width * dpr);
-      canvas.height = Math.round(state.height * dpr);
-      canvas.style.width = `${state.width}px`;
-      canvas.style.height = `${state.height}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    function mod(n, m) {
+      return ((n % m) + m) % m;
+    }
 
-      if (window.innerWidth <= 640 && !state._mobileInitialized) {
-        state.panelCollapsed = true;
-        state._mobileInitialized = true;
-      } else if (window.innerWidth > 640) {
-        state._mobileInitialized = false;
-      }
+    function vec(x, y) {
+      return { x, y };
+    }
 
-      updateLabels();
-      rebuildTiles();
+    function add(a, b) {
+      return { x: a.x + b.x, y: a.y + b.y };
+    }
+
+    function sub(a, b) {
+      return { x: a.x - b.x, y: a.y - b.y };
+    }
+
+    function mul(a, t) {
+      return { x: a.x * t, y: a.y * t };
     }
 
     function centroid(verts) {
-      let x = 0;
-      let y = 0;
+      let x = 0, y = 0;
       for (const p of verts) {
         x += p.x;
         y += p.y;
@@ -520,63 +500,134 @@
       ];
     }
 
-    function makeSquareTiles() {
-      const s = state.size;
-      const tiles = [];
-      for (let y = -s; y < state.height + s * 2; y += s) {
-        for (let x = -s; x < state.width + s * 2; x += s) {
-          const verts = squareVertices(x + s / 2, y + s / 2, s);
-          const c = centroid(verts);
-          const step = stepAngle('square');
-          const phase = Math.floor(Math.random() * 4) * step;
-          tiles.push({ verts, center: c, angle: phase, target: phase, step });
-        }
-      }
-      return tiles;
+    function makeTile(i, j, step, states) {
+      const phase = Math.floor(Math.random() * states) * step;
+      return { i, j, angle: phase, target: phase, step };
     }
 
-    function makeHexTiles() {
-      const r = state.size / 2;
-      const dx = Math.sqrt(3) * r;
-      const dy = 1.5 * r;
+    function buildTorus(options = {}) {
+      const preserve = Boolean(options.preserve) && state.torus && state.torus.mode === state.mode;
+      const previous = preserve ? state.torus : null;
+      const s = state.size;
+      const maxDim = Math.max(state.width, state.height);
+      let nx, ny, states;
+
+      if (state.mode === 'square') {
+        nx = clamp(Math.ceil(maxDim / s) + 6, 8, 28);
+        ny = clamp(Math.ceil(maxDim / s) + 6, 8, 28);
+        states = 4;
+      } else if (state.mode === 'hex') {
+        const r = s / 2;
+        nx = clamp(Math.ceil(maxDim / (Math.sqrt(3) * r)) + 8, 8, 24);
+        ny = clamp(Math.ceil(maxDim / (1.5 * r)) + 8, 8, 24);
+        states = 6;
+      } else {
+        const h = Math.sqrt(3) * s / 2;
+        nx = clamp(Math.ceil(maxDim / (s / 2)) + 8, 10, 40);
+        ny = clamp(Math.ceil(maxDim / h) + 8, 10, 40);
+        if (nx % 2) nx += 1;
+        if (ny % 2) ny += 1;
+        states = 3;
+      }
+
+      const step = stepAngle(state.mode);
       const tiles = [];
-      for (let row = -3; row < Math.ceil(state.height / dy) + 4; row++) {
-        for (let col = -3; col < Math.ceil(state.width / dx) + 4; col++) {
-          const cx = col * dx + (row % 2) * dx / 2;
-          const cy = row * dy;
-          const verts = hexVertices(cx, cy, r);
-          const c = { x: cx, y: cy };
-          const step = stepAngle('hex');
-          const phase = Math.floor(Math.random() * 6) * step;
-          tiles.push({ verts, center: c, angle: phase, target: phase, step });
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          if (previous && i < previous.nx && j < previous.ny) {
+            const tile = previous.tiles[j * previous.nx + i];
+            tiles.push({ i, j, angle: tile.angle, target: tile.target, step });
+          } else {
+            tiles.push(makeTile(i, j, step, states));
+          }
         }
       }
-      return tiles;
+
+      state.torus = { nx, ny, tiles, step, mode: state.mode };
     }
 
-    function makeTriangleTiles() {
+    function tileAt(i, j) {
+      const { nx, ny, tiles } = state.torus;
+      const ii = mod(i, nx);
+      const jj = mod(j, ny);
+      return tiles[jj * nx + ii];
+    }
+
+    function torusBasis() {
+      const { nx, ny } = state.torus;
       const s = state.size;
+      if (state.mode === 'square') {
+        return [vec(nx * s, 0), vec(0, ny * s)];
+      }
+      if (state.mode === 'hex') {
+        const r = s / 2;
+        const dx = Math.sqrt(3) * r;
+        const dy = 1.5 * r;
+        return [vec(nx * dx, 0), vec(ny * dx / 2, ny * dy)];
+      }
       const h = Math.sqrt(3) * s / 2;
-      const tiles = [];
-      for (let row = -2; row < Math.ceil(state.height / h) + 3; row++) {
-        for (let col = -2; col < Math.ceil(state.width / (s / 2)) + 3; col++) {
-          const x = col * (s / 2);
-          const y = row * h;
-          const up = ((row + col) % 2 === 0);
-          const verts = triangleVertices(x, y, s, up);
-          const c = centroid(verts);
-          const step = stepAngle('triangle');
-          const phase = Math.floor(Math.random() * 3) * step;
-          tiles.push({ verts, center: c, angle: phase, target: phase, step });
-        }
-      }
-      return tiles;
+      return [vec((nx * s) / 2, 0), vec(0, ny * h)];
     }
 
-    function rebuildTiles() {
-      if (state.mode === 'square') state.tiles = makeSquareTiles();
-      else if (state.mode === 'hex') state.tiles = makeHexTiles();
-      else state.tiles = makeTriangleTiles();
+    function reduceByBasis(v, a, b) {
+      const det = a.x * b.y - a.y * b.x;
+      if (Math.abs(det) < 1e-9) return v;
+      const alpha = (v.x * b.y - v.y * b.x) / det;
+      const beta = (a.x * v.y - a.y * v.x) / det;
+      const fa = alpha - Math.floor(alpha);
+      const fb = beta - Math.floor(beta);
+      return add(mul(a, fa), mul(b, fb));
+    }
+
+    function copySpan(v) {
+      return Math.abs(v.x) + Math.abs(v.y);
+    }
+
+    function copyRange() {
+      if (!state.torus) return { a: 1, b: 1 };
+      const [A, B] = torusBasis();
+      const reach = state.width + state.height + state.size * 2;
+      const spanA = Math.max(1, copySpan(A));
+      const spanB = Math.max(1, copySpan(B));
+      return {
+        a: Math.max(1, Math.ceil(reach / spanA) + 1),
+        b: Math.max(1, Math.ceil(reach / spanB) + 1),
+      };
+    }
+
+    function updateLabels() {
+      controls.sizeValue.textContent = `${Math.round(state.size)} px`;
+      controls.rateValue.textContent = `${state.rate.toFixed(1)}`;
+      controls.durationValue.textContent = `${state.duration.toFixed(2)} s`;
+      controls.lineWidthValue.textContent = `${state.lineWidth.toFixed(1)} px`;
+      controls.outlineValue.textContent = `${Math.round(state.outline * 100)}%`;
+      controls.pause.textContent = state.paused ? 'Resume' : 'Pause';
+      controls.togglePanel.textContent = state.panelCollapsed ? '⟩' : '⟨';
+      controls.togglePanel.setAttribute('aria-label', state.panelCollapsed ? 'Show controls' : 'Hide controls');
+      controls.togglePanel.title = state.panelCollapsed ? 'Show controls' : 'Hide controls';
+      controls.panel.classList.toggle('collapsed', state.panelCollapsed);
+      controls.size.value = String(state.size);
+    }
+
+    function resize() {
+      state.width = window.innerWidth;
+      state.height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(state.width * dpr);
+      canvas.height = Math.round(state.height * dpr);
+      canvas.style.width = `${state.width}px`;
+      canvas.style.height = `${state.height}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (window.innerWidth <= 640 && !state.mobileInitialized) {
+        state.panelCollapsed = true;
+        state.mobileInitialized = true;
+      } else if (window.innerWidth > 640) {
+        state.mobileInitialized = false;
+      }
+
+      buildTorus({ preserve: true });
+      updateLabels();
     }
 
     function polygonPath(verts) {
@@ -620,13 +671,11 @@
 
     function drawBackground() {
       const theme = palette.backgrounds[state.backgroundTheme] || palette.backgrounds.dark;
-
       if (theme.type === 'solid') {
         ctx.fillStyle = theme.color;
         ctx.fillRect(0, 0, state.width, state.height);
         return;
       }
-
       const grad = ctx.createRadialGradient(
         state.width * 0.30, state.height * 0.25, 40,
         state.width * 0.30, state.height * 0.25, Math.max(state.width, state.height)
@@ -638,53 +687,142 @@
       ctx.fillRect(0, 0, state.width, state.height);
     }
 
-    function drawTiles() {
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+    function drawOneTile(verts, center, angle) {
+      ctx.save();
+      polygonPath(verts);
+      ctx.clip();
+
+      ctx.translate(center.x, center.y);
+      ctx.rotate(angle);
+      ctx.translate(-center.x, -center.y);
 
       const onLight = state.backgroundTheme === 'white';
       const shadowColor = onLight ? hexToRgba(state.arcColor, 0.08) : hexToRgba(state.arcColor, 0.14);
 
-      for (const tile of state.tiles) {
-        const { verts, center, angle } = tile;
+      ctx.strokeStyle = shadowColor;
+      ctx.lineWidth = state.lineWidth + 5;
+      drawMotif(verts);
 
-        ctx.save();
+      ctx.strokeStyle = state.arcColor;
+      ctx.lineWidth = state.lineWidth;
+      drawMotif(verts);
+
+      ctx.restore();
+
+      if (state.showGrid && state.outline > 0) {
         polygonPath(verts);
-        ctx.clip();
+        ctx.strokeStyle = onLight
+          ? `rgba(70, 82, 100, ${state.outline})`
+          : `rgba(145, 160, 187, ${state.outline})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
 
-        ctx.translate(center.x, center.y);
-        ctx.rotate(angle);
-        ctx.translate(-center.x, -center.y);
+    function drawSquareTiles() {
+      const s = state.size;
+      const [A, B] = torusBasis();
+      const cam = reduceByBasis(vec(state.cameraX, state.cameraY), A, B);
+      const copies = copyRange();
 
-        ctx.strokeStyle = shadowColor;
-        ctx.lineWidth = state.lineWidth + 5;
-        drawMotif(verts);
-
-        ctx.strokeStyle = state.arcColor;
-        ctx.lineWidth = state.lineWidth;
-        drawMotif(verts);
-
-        ctx.restore();
-
-        if (state.showGrid && state.outline > 0) {
-          polygonPath(verts);
-          ctx.strokeStyle = onLight
-            ? `rgba(70, 82, 100, ${state.outline})`
-            : `rgba(145, 160, 187, ${state.outline})`;
-          ctx.lineWidth = 1;
-          ctx.stroke();
+      for (let copyY = -copies.b; copyY <= copies.b; copyY++) {
+        for (let copyX = -copies.a; copyX <= copies.a; copyX++) {
+          for (let j = 0; j < state.torus.ny; j++) {
+            for (let i = 0; i < state.torus.nx; i++) {
+              const tile = tileAt(i, j);
+              const cx = (i + 0.5) * s + copyX * A.x + copyY * B.x - cam.x;
+              const cy = (j + 0.5) * s + copyX * A.y + copyY * B.y - cam.y;
+              if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
+              drawOneTile(squareVertices(cx, cy, s), { x: cx, y: cy }, tile.angle);
+            }
+          }
         }
       }
     }
 
+    function drawHexTiles() {
+      const s = state.size;
+      const r = s / 2;
+      const dx = Math.sqrt(3) * r;
+      const dy = 1.5 * r;
+      const [A, B] = torusBasis();
+      const cam = reduceByBasis(vec(state.cameraX, state.cameraY), A, B);
+      const copies = copyRange();
+
+      for (let copyB = -copies.b; copyB <= copies.b; copyB++) {
+        for (let copyA = -copies.a; copyA <= copies.a; copyA++) {
+          for (let j = 0; j < state.torus.ny; j++) {
+            for (let i = 0; i < state.torus.nx; i++) {
+              const tile = tileAt(i, j);
+              const baseX = dx * (i + j / 2);
+              const baseY = dy * j;
+              const cx = baseX + copyA * A.x + copyB * B.x - cam.x;
+              const cy = baseY + copyA * A.y + copyB * B.y - cam.y;
+              if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
+              drawOneTile(hexVertices(cx, cy, r), { x: cx, y: cy }, tile.angle);
+            }
+          }
+        }
+      }
+    }
+
+    function drawTriangleTiles() {
+      const s = state.size;
+      const half = s / 2;
+      const h = Math.sqrt(3) * s / 2;
+      const [A, B] = torusBasis();
+      const cam = reduceByBasis(vec(state.cameraX, state.cameraY), A, B);
+      const copies = copyRange();
+
+      for (let copyB = -copies.b; copyB <= copies.b; copyB++) {
+        for (let copyA = -copies.a; copyA <= copies.a; copyA++) {
+          for (let j = 0; j < state.torus.ny; j++) {
+            for (let i = 0; i < state.torus.nx; i++) {
+              const tile = tileAt(i, j);
+              const x = i * half + copyA * A.x + copyB * B.x - cam.x;
+              const y = j * h + copyA * A.y + copyB * B.y - cam.y;
+              const up = ((i + j) % 2 === 0);
+              const verts = triangleVertices(x, y, s, up);
+              const c = centroid(verts);
+              if (c.x < -s || c.x > state.width + s || c.y < -s || c.y > state.height + s) continue;
+              drawOneTile(verts, c, tile.angle);
+            }
+          }
+        }
+      }
+    }
+
+    function drawTiles() {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (!state.torus) return;
+      if (state.mode === 'square') drawSquareTiles();
+      else if (state.mode === 'hex') drawHexTiles();
+      else drawTriangleTiles();
+    }
+
     function randomTurn() {
-      if (!state.tiles.length) return;
-      const tile = state.tiles[(Math.random() * state.tiles.length) | 0];
+      if (!state.torus || !state.torus.tiles.length) return;
+      const tile = state.torus.tiles[(Math.random() * state.torus.tiles.length) | 0];
       tile.target += tile.step;
     }
 
     function randomize() {
-      rebuildTiles();
+      buildTorus({ preserve: false });
+    }
+
+    function setTileSize(newSize, anchorX = state.width / 2, anchorY = state.height / 2) {
+      const min = Number(controls.size.min);
+      const max = Number(controls.size.max);
+      const oldSize = state.size;
+      const size = clamp(newSize, min, max);
+      if (Math.abs(size - oldSize) < 1e-6) return;
+      const ux = (anchorX + state.cameraX) / oldSize;
+      const uy = (anchorY + state.cameraY) / oldSize;
+      state.size = size;
+      state.cameraX = size * ux - anchorX;
+      state.cameraY = size * uy - anchorY;
+      updateLabels();
     }
 
     function update(dt) {
@@ -697,10 +835,9 @@
         if (Math.random() < expected) randomTurn();
       }
 
-      const baseStep = stepAngle(state.mode);
-      const angularSpeed = baseStep / Math.max(0.01, state.duration);
-
-      for (const tile of state.tiles) {
+      const angularSpeed = stepAngle(state.mode) / Math.max(0.01, state.duration);
+      if (!state.torus) return;
+      for (const tile of state.torus.tiles) {
         const diff = tile.target - tile.angle;
         if (Math.abs(diff) < 1e-5) {
           tile.angle = tile.target;
@@ -725,42 +862,157 @@
       requestAnimationFrame(frame);
     }
 
-    function syncStateFromControls(rebuild = false) {
+    function syncStateFromControls(options = {}) {
+      const rebuild = Boolean(options.rebuild);
+      const sizeChange = Boolean(options.sizeChange);
       state.mode = controls.mode.value;
       state.arcColor = controls.arcColor.value;
       state.backgroundTheme = controls.backgroundTheme.value;
-      state.size = Number(controls.size.value);
       state.rate = Number(controls.rate.value);
       state.duration = Number(controls.duration.value);
       state.lineWidth = Number(controls.lineWidth.value);
       state.outline = Number(controls.outline.value);
       state.showGrid = controls.showGrid.checked;
       updateLabels();
-      if (rebuild) rebuildTiles();
+      if (sizeChange) {
+        setTileSize(Number(controls.size.value));
+      } else if (rebuild) {
+        buildTorus({ preserve: false });
+      }
     }
 
-    controls.mode.addEventListener('change', () => syncStateFromControls(true));
-    controls.arcColor.addEventListener('change', () => syncStateFromControls(false));
-    controls.backgroundTheme.addEventListener('change', () => syncStateFromControls(false));
-    controls.size.addEventListener('input', () => syncStateFromControls(true));
-    controls.rate.addEventListener('input', () => syncStateFromControls(false));
-    controls.duration.addEventListener('input', () => syncStateFromControls(false));
-    controls.lineWidth.addEventListener('input', () => syncStateFromControls(false));
-    controls.outline.addEventListener('input', () => syncStateFromControls(false));
-    controls.showGrid.addEventListener('change', () => syncStateFromControls(false));
+    function togglePanel() {
+      state.panelCollapsed = !state.panelCollapsed;
+      updateLabels();
+    }
+
+    function drawPointerState() {
+      canvas.classList.toggle('dragging', Boolean(state.drag && state.drag.moved));
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    function handlePointerDown(event) {
+      if (event.target !== canvas) return;
+      const p = canvasPoint(event);
+      state.pointers.set(event.pointerId, p);
+      canvas.setPointerCapture(event.pointerId);
+
+      if (state.pointers.size === 1) {
+        state.drag = {
+          pointerId: event.pointerId,
+          start: p,
+          startCameraX: state.cameraX,
+          startCameraY: state.cameraY,
+          moved: false,
+        };
+        state.pinch = null;
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()];
+        const center = { x: 0.5 * (pts[0].x + pts[1].x), y: 0.5 * (pts[0].y + pts[1].y) };
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        state.pinch = {
+          startSize: state.size,
+          startCenter: center,
+          worldX: (center.x + state.cameraX) / state.size,
+          worldY: (center.y + state.cameraY) / state.size,
+          startDist: Math.max(1, dist),
+        };
+        state.drag = null;
+      }
+      drawPointerState();
+    }
+
+    function handlePointerMove(event) {
+      if (!state.pointers.has(event.pointerId)) return;
+      const p = canvasPoint(event);
+      state.pointers.set(event.pointerId, p);
+
+      if (state.pointers.size === 2 && state.pinch) {
+        const pts = [...state.pointers.values()];
+        const center = { x: 0.5 * (pts[0].x + pts[1].x), y: 0.5 * (pts[0].y + pts[1].y) };
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const factor = dist / state.pinch.startDist;
+        const newSize = clamp(state.pinch.startSize * factor, Number(controls.size.min), Number(controls.size.max));
+        state.size = newSize;
+        state.cameraX = newSize * state.pinch.worldX - center.x;
+        state.cameraY = newSize * state.pinch.worldY - center.y;
+        controls.size.value = String(state.size);
+        updateLabels();
+        drawPointerState();
+        return;
+      }
+
+      if (state.drag && state.drag.pointerId === event.pointerId) {
+        const dx = p.x - state.drag.start.x;
+        const dy = p.y - state.drag.start.y;
+        state.cameraX = state.drag.startCameraX - dx;
+        state.cameraY = state.drag.startCameraY - dy;
+        if (Math.hypot(dx, dy) > 8) state.drag.moved = true;
+        drawPointerState();
+      }
+    }
+
+    function handlePointerUp(event) {
+      if (state.pointers.has(event.pointerId)) state.pointers.delete(event.pointerId);
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+
+      if (state.pointers.size < 2) state.pinch = null;
+
+      if (state.drag && state.drag.pointerId === event.pointerId) {
+        const wasTap = !state.drag.moved;
+        state.drag = null;
+        if (wasTap) togglePanel();
+      } else if (state.pointers.size === 1) {
+        const [id, p] = [...state.pointers.entries()][0];
+        state.drag = {
+          pointerId: id,
+          start: p,
+          startCameraX: state.cameraX,
+          startCameraY: state.cameraY,
+          moved: false,
+        };
+      }
+      drawPointerState();
+    }
+
+    function handleWheel(event) {
+      if (event.target !== canvas) return;
+      event.preventDefault();
+      const p = canvasPoint(event);
+      const factor = Math.exp(-event.deltaY * 0.0012);
+      setTileSize(state.size * factor, p.x, p.y);
+    }
+
+    controls.mode.addEventListener('change', () => syncStateFromControls({ rebuild: true }));
+    controls.arcColor.addEventListener('change', () => syncStateFromControls());
+    controls.backgroundTheme.addEventListener('change', () => syncStateFromControls());
+    controls.size.addEventListener('input', () => syncStateFromControls({ sizeChange: true }));
+    controls.rate.addEventListener('input', () => syncStateFromControls());
+    controls.duration.addEventListener('input', () => syncStateFromControls());
+    controls.lineWidth.addEventListener('input', () => syncStateFromControls());
+    controls.outline.addEventListener('input', () => syncStateFromControls());
+    controls.showGrid.addEventListener('change', () => syncStateFromControls());
     controls.randomize.addEventListener('click', randomize);
     controls.nudge.addEventListener('click', randomTurn);
     controls.pause.addEventListener('click', () => {
       state.paused = !state.paused;
       updateLabels();
     });
-    controls.togglePanel.addEventListener('click', () => {
-      state.panelCollapsed = !state.panelCollapsed;
-      updateLabels();
-    });
+    controls.togglePanel.addEventListener('click', togglePanel);
+
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerUp);
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
 
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', (event) => {
+      const pan = Math.max(20, state.size * 0.35);
       if (event.key === ' ') {
         event.preventDefault();
         state.paused = !state.paused;
@@ -769,13 +1021,21 @@
         randomize();
       } else if (event.key === 'Enter') {
         randomTurn();
-      } else if (event.key.toLowerCase() === 'h') {
-        state.panelCollapsed = !state.panelCollapsed;
-        updateLabels();
+      } else if (event.key === 'ArrowLeft') {
+        state.cameraX -= pan;
+      } else if (event.key === 'ArrowRight') {
+        state.cameraX += pan;
+      } else if (event.key === 'ArrowUp') {
+        state.cameraY -= pan;
+      } else if (event.key === 'ArrowDown') {
+        state.cameraY += pan;
+      } else if (event.key === '+' || event.key === '=') {
+        setTileSize(state.size * 1.08);
+      } else if (event.key === '-') {
+        setTileSize(state.size / 1.08);
       }
     });
 
-    syncStateFromControls(true);
     resize();
     updateLabels();
     requestAnimationFrame(frame);
