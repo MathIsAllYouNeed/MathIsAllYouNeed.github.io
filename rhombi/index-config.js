@@ -1,7 +1,7 @@
 // ── Visual configuration for index.html ────────────────────
 const TILING_CONFIG = {
   // Rhombus colors: LEFT, RIGHT, TOP
-  COLORS: ["#d963a6ff", "#e4dfadff", "#92dbaaff"],
+  COLORS: ["#d963a6", "#e4dfad", "#92dbaa"],
 
   // Rhombus edge stroke
   STROKE: "#111",
