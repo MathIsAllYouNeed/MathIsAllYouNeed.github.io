@@ -339,11 +339,12 @@
           <button id="randomize">Randomize</button>
           <button id="nudge">Rotate one tile</button>
           <button id="pause">Pause</button>
+          <button id="fullscreen">Fullscreen</button>
         </div>
       </div>
 
       <div class="footer">
-        Keyboard: space pauses, enter rotates one tile, arrows pan, +/− zoom, r randomizes.
+        Keyboard: space pauses, enter rotates one tile, arrows pan, +/− zoom, r randomizes, f fullscreen.
       </div>
     </div>
   </div>
@@ -371,6 +372,7 @@
       randomize: document.getElementById('randomize'),
       nudge: document.getElementById('nudge'),
       pause: document.getElementById('pause'),
+      fullscreen: document.getElementById('fullscreen'),
       sizeValue: document.getElementById('sizeValue'),
       torusScaleValue: document.getElementById('torusScaleValue'),
       rateValue: document.getElementById('rateValue'),
@@ -654,6 +656,7 @@
       controls.lineWidthValue.textContent = `${state.lineWidth.toFixed(1)} px`;
       controls.outlineValue.textContent = `${Math.round(state.outline * 100)}%`;
       controls.pause.textContent = state.paused ? 'Resume' : 'Pause';
+      controls.fullscreen.textContent = document.fullscreenElement ? 'Exit Fullscreen' : 'Fullscreen';
       controls.togglePanel.textContent = state.panelCollapsed ? '⟩' : '⟨';
       controls.togglePanel.setAttribute('aria-label', state.panelCollapsed ? 'Show controls' : 'Hide controls');
       controls.togglePanel.title = state.panelCollapsed ? 'Show controls' : 'Hide controls';
@@ -942,6 +945,20 @@
       updateLabels();
     }
 
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (error) {
+        console.warn('Fullscreen toggle failed:', error);
+      } finally {
+        updateLabels();
+      }
+    }
+
     function drawPointerState() {
       canvas.classList.toggle('dragging', Boolean(state.drag && state.drag.moved));
     }
@@ -1060,6 +1077,7 @@
       state.paused = !state.paused;
       updateLabels();
     });
+    controls.fullscreen.addEventListener('click', toggleFullscreen);
     controls.togglePanel.addEventListener('click', togglePanel);
 
     canvas.addEventListener('pointerdown', handlePointerDown);
@@ -1067,6 +1085,7 @@
     canvas.addEventListener('pointerup', handlePointerUp);
     canvas.addEventListener('pointercancel', handlePointerUp);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
+    document.addEventListener('fullscreenchange', updateLabels);
 
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', (event) => {
@@ -1091,6 +1110,9 @@
         setTileSize(state.size * 1.08);
       } else if (event.key === '-') {
         setTileSize(state.size / 1.08);
+      } else if (event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        toggleFullscreen();
       }
     });
 
