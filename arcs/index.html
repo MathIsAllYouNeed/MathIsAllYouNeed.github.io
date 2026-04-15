@@ -278,6 +278,14 @@
         </div>
 
         <div>
+          <label for="squareAnimation">Arc animation</label>
+          <select id="squareAnimation">
+            <option value="corner" selected>Corner arcs</option>
+            <option value="orthogonal">Orthogonal flip</option>
+          </select>
+        </div>
+
+        <div>
           <label for="backgroundTheme">Background</label>
           <select id="backgroundTheme">
             <option value="dark" selected>Dark gradient</option>
@@ -299,6 +307,14 @@
           <label for="torusScale">Torus size</label>
           <input id="torusScale" type="range" min="0.5" max="3" step="0.05" value="1" />
           <div class="value" id="torusScaleValue"></div>
+        </div>
+
+        <div>
+          <label for="interactionMode">Interaction</label>
+          <select id="interactionMode">
+            <option value="random" selected>Random</option>
+            <option value="click">Click to flip</option>
+          </select>
         </div>
 
         <div>
@@ -360,9 +376,11 @@
       togglePanel: document.getElementById('togglePanel'),
       mode: document.getElementById('mode'),
       arcColor: document.getElementById('arcColor'),
+      squareAnimation: document.getElementById('squareAnimation'),
       backgroundTheme: document.getElementById('backgroundTheme'),
       size: document.getElementById('size'),
       torusScale: document.getElementById('torusScale'),
+      interactionMode: document.getElementById('interactionMode'),
       rate: document.getElementById('rate'),
       duration: document.getElementById('duration'),
       lineWidth: document.getElementById('lineWidth'),
@@ -398,9 +416,11 @@
       height: window.innerHeight,
       mode: controls.mode.value,
       arcColor: controls.arcColor.value,
+      squareAnimation: controls.squareAnimation.value,
       backgroundTheme: controls.backgroundTheme.value,
       size: Number(controls.size.value),
       torusScale: Number(controls.torusScale.value),
+      interactionMode: controls.interactionMode.value,
       rate: Number(controls.rate.value),
       duration: Number(controls.duration.value),
       lineWidth: Number(controls.lineWidth.value),
@@ -477,9 +497,13 @@
       return [0];
     }
 
+    function usesOrthogonalFlip() {
+      return state.squareAnimation === 'orthogonal' && (state.mode === 'square' || state.mode === 'hex');
+    }
+
     function stepAngle(mode) {
-      if (mode === 'square') return Math.PI / 2;
-      if (mode === 'hex') return Math.PI / 3;
+      if (mode === 'square') return usesOrthogonalFlip() ? 1 : Math.PI / 2;
+      if (mode === 'hex') return usesOrthogonalFlip() ? 1 : Math.PI / 3;
       return 2 * Math.PI / 3;
     }
 
@@ -534,12 +558,12 @@
       if (state.mode === 'square') {
         nx = clamp(Math.round((Math.ceil(maxDim / s) + 6) * scale), 8, 96);
         ny = clamp(Math.round((Math.ceil(maxDim / s) + 6) * scale), 8, 96);
-        states = 4;
+        states = usesOrthogonalFlip() ? 2 : 4;
       } else if (state.mode === 'hex') {
         const r = s / 2;
         nx = clamp(Math.round((Math.ceil(maxDim / (Math.sqrt(3) * r)) + 8) * scale), 8, 96);
         ny = clamp(Math.round((Math.ceil(maxDim / (1.5 * r)) + 8) * scale), 8, 96);
-        states = 6;
+        states = usesOrthogonalFlip() ? 2 : 6;
       } else {
         const h = Math.sqrt(3) * s / 2;
         nx = clamp(Math.round((Math.ceil(maxDim / (s / 2)) + 8) * scale), 10, 120);
@@ -710,7 +734,76 @@
       }
     }
 
+    function drawOrthogonalArcByPoints(p1, p2, guideRadius, guideCenter) {
+      const ux1 = (p1.x - guideCenter.x) / guideRadius;
+      const uy1 = (p1.y - guideCenter.y) / guideRadius;
+      const ux2 = (p2.x - guideCenter.x) / guideRadius;
+      const uy2 = (p2.y - guideCenter.y) / guideRadius;
+      const wx = ux1 + ux2;
+      const wy = uy1 + uy2;
+      const wLen = Math.hypot(wx, wy);
+
+      if (wLen < 1e-6) {
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        return;
+      }
+
+      const dot = clamp(ux1 * ux2 + uy1 * uy2, -0.999999, 0.999999);
+      const scale = guideRadius / (1 + dot);
+      const center = {
+        x: guideCenter.x + scale * wx,
+        y: guideCenter.y + scale * wy,
+      };
+      drawArcPolyline(center, p1, p2);
+    }
+
     function drawMotif(verts) {
+      if (usesOrthogonalFlip() && state.mode === 'square') {
+        const top = midpoint(verts[0], verts[1]);
+        const bottom = midpoint(verts[2], verts[3]);
+        const center = centroid(verts);
+        const guideRadius = Math.hypot(top.x - center.x, top.y - center.y);
+        const s = clamp(state.currentTilePhase ?? 0, 0, 1);
+        const topEnd = {
+          x: center.x + guideRadius * Math.cos(Math.PI * (1 - s)),
+          y: center.y + guideRadius * Math.sin(Math.PI * (1 - s)),
+        };
+        const bottomEnd = {
+          x: center.x + guideRadius * Math.cos(-Math.PI * s),
+          y: center.y + guideRadius * Math.sin(-Math.PI * s),
+        };
+        ctx.beginPath();
+        drawOrthogonalArcByPoints(top, topEnd, guideRadius, center);
+        drawOrthogonalArcByPoints(bottom, bottomEnd, guideRadius, center);
+        ctx.stroke();
+        return;
+      }
+
+      if (usesOrthogonalFlip() && state.mode === 'hex') {
+        const center = centroid(verts);
+        const midpoints = [];
+        for (let i = 0; i < 6; i++) {
+          midpoints.push(midpoint(verts[i], verts[(i + 1) % 6]));
+        }
+        const guideRadius = Math.hypot(midpoints[0].x - center.x, midpoints[0].y - center.y);
+        const s = clamp(state.currentTilePhase ?? 0, 0, 1);
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) {
+          const fixed = midpoints[2 * k];
+          const movingStartAngle = Math.atan2(midpoints[(2 * k + 5) % 6].y - center.y, midpoints[(2 * k + 5) % 6].x - center.x);
+          // Use the complementary sweep so the moving midpoint does not pass through the fixed endpoint.
+          const movingAngle = movingStartAngle - s * (4 * Math.PI / 3);
+          const moving = {
+            x: center.x + guideRadius * Math.cos(movingAngle),
+            y: center.y + guideRadius * Math.sin(movingAngle),
+          };
+          drawOrthogonalArcByPoints(fixed, moving, guideRadius, center);
+        }
+        ctx.stroke();
+        return;
+      }
+
       const picks = selectedIndices(state.mode);
       ctx.beginPath();
       for (const i of picks) {
@@ -748,12 +841,15 @@
       polygonPath(verts);
       ctx.clip();
 
-      ctx.translate(center.x, center.y);
-      ctx.rotate(angle);
-      ctx.translate(-center.x, -center.y);
+      if (!usesOrthogonalFlip()) {
+        ctx.translate(center.x, center.y);
+        ctx.rotate(angle);
+        ctx.translate(-center.x, -center.y);
+      }
 
       const onLight = state.backgroundTheme === 'white';
       const shadowColor = onLight ? hexToRgba(state.arcColor, 0.08) : hexToRgba(state.arcColor, 0.14);
+      state.currentTilePhase = angle;
 
       ctx.strokeStyle = shadowColor;
       ctx.lineWidth = state.lineWidth + 5;
@@ -762,6 +858,7 @@
       ctx.strokeStyle = state.arcColor;
       ctx.lineWidth = state.lineWidth;
       drawMotif(verts);
+      state.currentTilePhase = null;
 
       ctx.restore();
 
@@ -857,10 +954,19 @@
       else drawTriangleTiles();
     }
 
+    function flipTile(tile) {
+      if (!tile) return;
+      if (usesOrthogonalFlip()) {
+        tile.target = tile.target < 0.5 ? 1 : 0;
+      } else {
+        tile.target += tile.step;
+      }
+    }
+
     function randomTurn() {
       if (!state.torus || !state.torus.tiles.length) return;
       const tile = state.torus.tiles[(Math.random() * state.torus.tiles.length) | 0];
-      tile.target += tile.step;
+      flipTile(tile);
     }
 
     function randomize() {
@@ -882,7 +988,7 @@
     }
 
     function update(dt) {
-      if (!state.paused && state.rate > 0) {
+      if (!state.paused && state.interactionMode === 'random' && state.rate > 0) {
         let expected = state.rate * dt;
         while (expected > 1) {
           randomTurn();
@@ -924,8 +1030,10 @@
       const sizeChange = Boolean(options.sizeChange);
       state.mode = controls.mode.value;
       state.arcColor = controls.arcColor.value;
+      state.squareAnimation = controls.squareAnimation.value;
       state.backgroundTheme = controls.backgroundTheme.value;
       state.torusScale = Number(controls.torusScale.value);
+      state.interactionMode = controls.interactionMode.value;
       state.rate = Number(controls.rate.value);
       state.duration = Number(controls.duration.value);
       state.lineWidth = Number(controls.lineWidth.value);
@@ -966,6 +1074,72 @@
     function canvasPoint(event) {
       const rect = canvas.getBoundingClientRect();
       return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    function pointInPolygon(point, verts) {
+      let inside = false;
+      for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+        const xi = verts[i].x;
+        const yi = verts[i].y;
+        const xj = verts[j].x;
+        const yj = verts[j].y;
+        const intersect = ((yi > point.y) !== (yj > point.y))
+          && (point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || 1e-9) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function tileAtCanvasPoint(point) {
+      if (!state.torus || (state.mode !== 'square' && state.mode !== 'hex')) return null;
+      const layouts = [];
+      if (state.mode === 'square') {
+        const s = state.size;
+        const [A, B] = torusBasis();
+        const cam = reduceByBasis(vec(state.cameraX, state.cameraY), A, B);
+        const copies = copyRange();
+        for (let copyY = -copies.b; copyY <= copies.b; copyY++) {
+          for (let copyX = -copies.a; copyX <= copies.a; copyX++) {
+            for (let j = 0; j < state.torus.ny; j++) {
+              for (let i = 0; i < state.torus.nx; i++) {
+                const tile = tileAt(i, j);
+                const cx = (i + 0.5) * s + copyX * A.x + copyY * B.x - cam.x;
+                const cy = (j + 0.5) * s + copyX * A.y + copyY * B.y - cam.y;
+                if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
+                layouts.push({ tile, verts: squareVertices(cx, cy, s), center: { x: cx, y: cy } });
+              }
+            }
+          }
+        }
+      } else if (state.mode === 'hex') {
+        const s = state.size;
+        const r = s / 2;
+        const dx = Math.sqrt(3) * r;
+        const dy = 1.5 * r;
+        const [A, B] = torusBasis();
+        const cam = reduceByBasis(vec(state.cameraX, state.cameraY), A, B);
+        const copies = copyRange();
+        for (let copyB = -copies.b; copyB <= copies.b; copyB++) {
+          for (let copyA = -copies.a; copyA <= copies.a; copyA++) {
+            for (let j = 0; j < state.torus.ny; j++) {
+              for (let i = 0; i < state.torus.nx; i++) {
+                const tile = tileAt(i, j);
+                const baseX = dx * (i + j / 2);
+                const baseY = dy * j;
+                const cx = baseX + copyA * A.x + copyB * B.x - cam.x;
+                const cy = baseY + copyA * A.y + copyB * B.y - cam.y;
+                if (cx < -s || cx > state.width + s || cy < -s || cy > state.height + s) continue;
+                layouts.push({ tile, verts: hexVertices(cx, cy, r), center: { x: cx, y: cy } });
+              }
+            }
+          }
+        }
+      }
+
+      for (let i = layouts.length - 1; i >= 0; i--) {
+        if (pointInPolygon(point, layouts[i].verts)) return layouts[i].tile;
+      }
+      return null;
     }
 
     function handlePointerDown(event) {
@@ -1038,7 +1212,16 @@
       if (state.drag && state.drag.pointerId === event.pointerId) {
         const wasTap = !state.drag.moved;
         state.drag = null;
-        if (wasTap) togglePanel();
+        if (wasTap) {
+          if (state.interactionMode === 'click') {
+            const p = canvasPoint(event);
+            const tile = tileAtCanvasPoint(p);
+            if (tile) flipTile(tile);
+            else togglePanel();
+          } else {
+            togglePanel();
+          }
+        }
       } else if (state.pointers.size === 1) {
         const [id, p] = [...state.pointers.entries()][0];
         state.drag = {
@@ -1062,9 +1245,11 @@
 
     controls.mode.addEventListener('change', () => syncStateFromControls({ rebuild: true }));
     controls.arcColor.addEventListener('change', () => syncStateFromControls());
+    controls.squareAnimation.addEventListener('change', () => syncStateFromControls({ rebuild: true }));
     controls.backgroundTheme.addEventListener('change', () => syncStateFromControls());
     controls.size.addEventListener('input', () => syncStateFromControls({ sizeChange: true }));
     controls.torusScale.addEventListener('input', () => syncStateFromControls({ rebuild: true }));
+    controls.interactionMode.addEventListener('change', () => syncStateFromControls());
     controls.rate.addEventListener('input', () => syncStateFromControls());
     controls.duration.addEventListener('input', () => syncStateFromControls());
     controls.lineWidth.addEventListener('input', () => syncStateFromControls());
